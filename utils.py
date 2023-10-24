@@ -2,10 +2,44 @@ import numpy as np
 import torch
 import os
 import h5py
+from os.path import exists
 from torch.utils.data import TensorDataset, DataLoader
 
 import IPython
 e = IPython.embed
+
+class ClayDataset(torch.utils.data.Dataset):
+    def __init__(self, dataset_dir):
+        """
+        NOTE: The point clouds and actions are already normalized.
+        """
+        super(ClayDataset).__init__()
+        self.dataset_dir = dataset_dir
+    
+    def __len__(self):
+        """
+        Return the number of episodes in the dataset (i.e. the number of actions in the trajectory folder)
+        """
+        pass
+
+    def __getitem__(self, index):
+        sample_full_episode = True # hardcode
+
+        traj_path = self.dataset_dir + '/Trajectory' + str(index)
+
+        states = []
+        j = 0
+        while exists(traj_path + '/state' + str(j) + '.npy'):
+            s = np.load(traj_path + '/s_embed' + str(j) + '.npy')
+            s = torch.from_numpy(s).float()
+            states.append(s)
+            j+=1
+
+        # iterate through length
+            # import states and actions
+        
+        # return list of states and list of actions
+        # final state is the goal state
 
 class EpisodicDataset(torch.utils.data.Dataset):
     def __init__(self, episode_ids, dataset_dir, camera_names, norm_stats):
@@ -106,6 +140,22 @@ def get_norm_stats(dataset_dir, num_episodes):
              "example_qpos": qpos}
 
     return stats
+
+def load_clay_data(dataset_dir, num_episodes, batch_size_train, batch_size_val):
+    print(f'\nData from: {dataset_dir}\n')
+    # obtain train test split
+    train_ratio = 0.8
+    shuffled_indices = np.random.permutation(num_episodes)
+    train_indices = shuffled_indices[:int(train_ratio * num_episodes)]
+    val_indices = shuffled_indices[int(train_ratio * num_episodes):]
+
+    # construct dataset and dataloader
+    train_dataset = ClayDataset(train_indices, dataset_dir)
+    val_dataset = ClayDataset(val_indices, dataset_dir)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size_val, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)
+
+    return train_dataloader, val_dataloader
 
 
 def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val):
