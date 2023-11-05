@@ -1,4 +1,4 @@
-from utils import registry
+from pointBERT.utils import registry
 
 
 DATASETS = registry.Registry('dataset')

@@ -3,12 +3,12 @@ import torch.nn as nn
 import os
 import json
 from tqdm import tqdm
-from tools import builder
-from utils import misc, dist_utils
+from pointBERT.tools import builder
+from pointBERT.utils import misc, dist_utils
 import time
-from utils.logger import *
-from utils.AverageMeter import AverageMeter
-from utils.metrics import Metrics
+from pointBERT.utils.logger import *
+from pointBERT.utils.AverageMeter import AverageMeter
+from pointBERT.utils.metrics import Metrics
 from extensions.chamfer_dist import ChamferDistanceL1, ChamferDistanceL2
 import math
 import cv2

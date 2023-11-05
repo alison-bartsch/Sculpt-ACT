@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
-from tools import builder
-from utils import misc, dist_utils
+from pointBERT.tools import builder
+from pointBERT.utils import misc, dist_utils
 import time
-from utils.logger import *
-from utils.AverageMeter import AverageMeter
+from pointBERT.utils.logger import *
+from pointBERT.utils.AverageMeter import AverageMeter
 
 import numpy as np
 from datasets import data_transforms
