@@ -9,12 +9,12 @@ import time
 from pointBERT.utils.logger import *
 from pointBERT.utils.AverageMeter import AverageMeter
 from pointBERT.utils.metrics import Metrics
-from extensions.chamfer_dist import ChamferDistanceL1, ChamferDistanceL2
+from pointBERT.extensions.chamfer_dist import ChamferDistanceL1, ChamferDistanceL2
 import math
 from sklearn.svm import LinearSVC
 import numpy as np
 from torchvision import transforms
-from datasets import data_transforms
+from pointBERT.datasets import data_transforms
 from pointnet2_ops import pointnet2_utils
 
 train_transforms = transforms.Compose(

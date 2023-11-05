@@ -7,7 +7,7 @@ from pointBERT.utils.logger import *
 from pointBERT.utils.AverageMeter import AverageMeter
 
 import numpy as np
-from datasets import data_transforms
+from pointBERT.datasets import data_transforms
 from pointnet2_ops import pointnet2_utils
 from torchvision import transforms
 

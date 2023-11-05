@@ -9,7 +9,7 @@ import time
 from pointBERT.utils.logger import *
 from pointBERT.utils.AverageMeter import AverageMeter
 from pointBERT.utils.metrics import Metrics
-from extensions.chamfer_dist import ChamferDistanceL1, ChamferDistanceL2
+from pointBERT.extensions.chamfer_dist import ChamferDistanceL1, ChamferDistanceL2
 import math
 import cv2
 import numpy as np

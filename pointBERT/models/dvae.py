@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from pointnet2_ops import pointnet2_utils
 from .build import MODELS
 from pointBERT.utils import misc
-from extensions.chamfer_dist import ChamferDistanceL1, ChamferDistanceL2
+from pointBERT.extensions.chamfer_dist import ChamferDistanceL1, ChamferDistanceL2
 # from extensions.emd import emd
 from pointBERT.utils.checkpoint import get_missing_parameters_message, get_unexpected_parameters_message
 from pointBERT.utils.logger import *

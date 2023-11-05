@@ -1,3 +1,8 @@
 easydict
+termcolor
+timm
 "git+git://github.com/erikwijmans/Pointnet2_PyTorch.git#egg=pointnet2_ops&subdirectory=pointnet2_ops_lib"
 https://github.com/unlimblue/KNN_CUDA/releases/download/0.2/KNN_CUDA-0.2-py3-none-any.whl
+# clone pointnet++ pytorch repository: https://github.com/erikwijmans/Pointnet2_PyTorch
+    # pip install -e .
+    # pip install pointnet2_ops_lib/.
