@@ -99,7 +99,8 @@ def main(args):
         ckpt_names = [f'policy_best.ckpt']
         results = []
         for ckpt_name in ckpt_names:
-            success_rate, avg_return = eval_bc(config, ckpt_name, save_episode=True)
+            # success_rate, avg_return = eval_bc(config, ckpt_name, save_episode=True)
+            success_rate, avg_return = clay_eval_bc(config, ckpt_name, save_episode=True)
             results.append([ckpt_name, success_rate, avg_return])
 
         for ckpt_name, success_rate, avg_return in results:
@@ -162,6 +163,7 @@ def get_image(ts, camera_names):
     return curr_image
 
 def clay_eval_bc(config, ckpt_name, save_episode=True):
+    from frankapy import FrankaArm
     # initialize the robot and reset joints
     fa = FrankaArm()
 
