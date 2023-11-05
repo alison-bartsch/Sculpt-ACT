@@ -201,12 +201,12 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
 
     # load point-BERT
     device = torch.device('cuda')
-    enc_checkpoint = torch.load('embedding_experiments/exp15/checkpoint', map_location=torch.device('cpu'))
+    enc_checkpoint = torch.load('pointBERT/encoder_weights/checkpoint', map_location=torch.device('cpu'))
     encoder_head = enc_checkpoint['encoder_head'].to(device)
-    config = cfg_from_yaml_file('cfgs/ModelNet_models/PointTransformer.yaml')
+    config = cfg_from_yaml_file('cfgs/PointTransformer.yaml')
     model_config = config.model
     pointbert = builder.model_builder(model_config)
-    weights_path = 'experiments/Point-BERT/Mixup_models/downloaded/Point-BERT.pth'
+    weights_path = 'point-BERT-weights/Point-BERT.pth'
     pointbert.load_model_from_ckpt(weights_path)
     pointbert.to(device)
 
@@ -480,12 +480,12 @@ def forward_pass(data, policy):
 
     # load point-BERT
     device = torch.device('cuda')
-    enc_checkpoint = torch.load('embedding_experiments/exp15/checkpoint', map_location=torch.device('cpu'))
+    enc_checkpoint = torch.load('pointBERT/encoder_weights/checkpoint', map_location=torch.device('cpu'))
     encoder_head = enc_checkpoint['encoder_head'].to(device)
-    config = cfg_from_yaml_file('cfgs/ModelNet_models/PointTransformer.yaml')
+    config = cfg_from_yaml_file('cfgs/PointTransformer.yaml')
     model_config = config.model
     pointbert = builder.model_builder(model_config)
-    weights_path = 'experiments/Point-BERT/Mixup_models/downloaded/Point-BERT.pth'
+    weights_path = 'point-BERT-weights/Point-BERT.pth'
     pointbert.load_model_from_ckpt(weights_path)
     pointbert.to(device)
 
