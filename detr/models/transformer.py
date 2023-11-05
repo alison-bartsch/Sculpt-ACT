@@ -51,8 +51,10 @@ class Transformer(nn.Module):
         if len(src.shape) == 4: # has H and W
             # flatten NxCxHxW to HWxNxC
             bs, c, h, w = src.shape
-            src = src.flatten(2).permute(2, 0, 1)
-            pos_embed = pos_embed.flatten(2).permute(2, 0, 1).repeat(1, bs, 1)
+            src = src.flatten(2).permute(2, 0, 1) # (300, bs, 512)
+            # print("\nFlattened src shape: ", src.shape)
+            pos_embed = pos_embed.flatten(2).permute(2, 0, 1).repeat(1, bs, 1) # (300, bs, 512)
+            # print("Flattened pos_embed shape: ", pos_embed.shape)
             query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)
             # mask = mask.flatten(1)
 
@@ -66,14 +68,31 @@ class Transformer(nn.Module):
             # flatten NxHWxC to HWxNxC
             bs, hw, c = src.shape
             src = src.permute(1, 0, 2)
-            pos_embed = pos_embed.unsqueeze(1).repeat(1, bs, 1)
+            # print("\nTransformer src: ", src.shape)
+            
+            pos_embed = pos_embed.permute(1,0,2).float()
+            # print("pos_embed shape: ", pos_embed.shape)
+            # print("query embed shape: ", query_embed.shape)
+            # print("pos_embed: ", pos_embed.shape)
+            # print("pos embed unsqueeze: ", pos_embed.unsqueeze(1).shape)
+            # print("query embed: ", query_embed.shape)
+            # print("query embed unsqueeze: ", query_embed.unsqueeze(1).shape)
+            # pos_embed = pos_embed.repeat(1, bs, 1)
+            # pos_embed = pos_embed.unsqueeze(1).repeat(1, bs, 1)
             query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)
+            # print("query embed shape: ", query_embed.shape)
 
         tgt = torch.zeros_like(query_embed)
+        # print("src: ", src.shape)
+        # print("mask: ", mask)
+        # print("pos_embed: ", pos_embed.shape)
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)
+        # print("memory: ", memory.shape)
         hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
                           pos=pos_embed, query_pos=query_embed)
+        # print("hs: ", hs.shape)
         hs = hs.transpose(1, 2)
+        # print("hs transposed: ", hs.shape)
         return hs
 
 class TransformerEncoder(nn.Module):
@@ -198,6 +217,10 @@ class TransformerEncoderLayer(nn.Module):
                 pos: Optional[Tensor] = None):
         if self.normalize_before:
             return self.forward_pre(src, src_mask, src_key_padding_mask, pos)
+        # print("\nsrc: ", src.dtype)
+        # print("src mask: ", src_mask)
+        # print("src key padding mask: ", src_key_padding_mask.shape)
+        # print("pos: ", pos.dtype)
         return self.forward_post(src, src_mask, src_key_padding_mask, pos)
 
 

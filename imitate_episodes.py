@@ -46,6 +46,10 @@ def main(args):
     episode_len = task_config['episode_len']
     camera_names = task_config['camera_names']
 
+    # print("\nn episodes: ", num_episodes)
+    # print("episode len: ", episode_len)
+    # assert False
+
     # fixed parameters
     state_dim = 14
     lr_backbone = 1e-5
@@ -315,6 +319,11 @@ def eval_bc(config, ckpt_name, save_episode=True):
 
 def forward_pass(data, policy):
     image_data, qpos_data, action_data, is_pad = data
+    print("\nImage Data Shape: ", image_data.shape)
+    print("\nqpos data shape: ", qpos_data.shape)
+    print("\nAction data shape: ", action_data.shape)
+    print("\nispad: ", is_pad)
+    # assert False
     image_data, qpos_data, action_data, is_pad = image_data.cuda(), qpos_data.cuda(), action_data.cuda(), is_pad.cuda()
     return policy(qpos_data, image_data, action_data, is_pad) # TODO remove None
 

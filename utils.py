@@ -9,31 +9,78 @@ import IPython
 e = IPython.embed
 
 class ClayDataset(torch.utils.data.Dataset):
-    def __init__(self, dataset_dir):
+    def __init__(self, episode_idxs, dataset_dir):
         """
         NOTE: The point clouds and actions are already normalized.
         """
         super(ClayDataset).__init__()
         self.dataset_dir = dataset_dir
+        self.episode_idxs = episode_idxs
+        self.max_len = 6 # maximum number of actions for X trajectory
+        self.action_shape = (self.max_len, 5)
     
     def __len__(self):
         """
         Return the number of episodes in the dataset (i.e. the number of actions in the trajectory folder)
         """
-        pass
+        return len(self.episode_idxs)
 
     def __getitem__(self, index):
         sample_full_episode = True # hardcode
 
-        traj_path = self.dataset_dir + '/Trajectory' + str(index)
+        idx = self.episode_idxs[index]
+        traj_path = self.dataset_dir + '/Trajectory' + str(idx)
+        # print("\nTrajectory path: ", traj_path)
 
         states = []
+        actions = []
         j = 0
-        while exists(traj_path + '/state' + str(j) + '.npy'):
+
+        # print("\n\n\nPath: ", traj_path + '/s_embed' + str(j))
+
+        # load the entire trajectory
+        # while exists(traj_path + '/state' + str(j) + '.npy'):
+        while exists(traj_path + '/s_embed' + str(j) + '.npy'):
+            # print("Path exists!")
             s = np.load(traj_path + '/s_embed' + str(j) + '.npy')
-            s = torch.from_numpy(s).float()
+            # s = torch.from_numpy(s).float()
             states.append(s)
+
+            if j != 0:
+                a = np.load(traj_path + '/action' + str(j-1) + '.npy')
+                # a = torch.from_numpy(a).float()
+                actions.append(a)
+                # print("action appended")
             j+=1
+
+        # print("\n\nActions: ", actions)
+        episode_len = len(actions)
+        # print("\n\nEpisode len: ", episode_len)
+        # print("\n\n\n\n\n\n")
+        start_ts = np.random.choice(episode_len)
+        # print("\nStart ts: ", start_ts)
+        state = states[start_ts]
+        action = actions[start_ts:]
+        # print("\nlen(action): ", len(action))
+        action = np.stack(action, axis=0)
+        action_len = episode_len - start_ts
+
+        qpos = np.ones(self.action_shape[1])
+        padded_action = np.zeros(self.action_shape, dtype=np.float32)
+        # print("\nPadded Action Shape: ", padded_action.shape)
+        # print("Action shape: ", action.shape)
+
+        padded_action[:action_len] = action
+        is_pad = np.zeros(self.max_len)
+        is_pad[action_len:] = 1
+
+        # construct observations
+        state_data = torch.from_numpy(state)
+        qpos_data = torch.from_numpy(qpos).float()
+        action_data = torch.from_numpy(padded_action).float()
+        is_pad = torch.from_numpy(is_pad).bool()
+
+        return qpos_data, state_data, action_data, is_pad
 
         # iterate through length
             # import states and actions
@@ -62,7 +109,9 @@ class EpisodicDataset(torch.utils.data.Dataset):
         with h5py.File(dataset_path, 'r') as root:
             is_sim = root.attrs['sim']
             original_action_shape = root['/action'].shape
+            # print("\nOriginal Action Shape: ", original_action_shape)
             episode_len = original_action_shape[0]
+            # print("\nOriginal Episode Length: ", episode_len)
             if sample_full_episode:
                 start_ts = 0
             else:
@@ -81,11 +130,18 @@ class EpisodicDataset(torch.utils.data.Dataset):
                 action = root['/action'][max(0, start_ts - 1):] # hack, to make timesteps more aligned
                 action_len = episode_len - max(0, start_ts - 1) # hack, to make timesteps more aligned
 
+        # print("Individual Action Sequence Length: ", action.shape)
+
         self.is_sim = is_sim
+        # print("\nOriginal Action Shape: ", original_action_shape)
         padded_action = np.zeros(original_action_shape, dtype=np.float32)
         padded_action[:action_len] = action
         is_pad = np.zeros(episode_len)
         is_pad[action_len:] = 1
+        # print("\nis pad for action: ", is_pad)
+        # print("Sum is pad ", np.sum(is_pad))
+        # print("Episode len ", episode_len)
+        # print("action len: ", action_len)
 
         # new axis for different cameras
         all_cam_images = []
@@ -98,6 +154,9 @@ class EpisodicDataset(torch.utils.data.Dataset):
         qpos_data = torch.from_numpy(qpos).float()
         action_data = torch.from_numpy(padded_action).float()
         is_pad = torch.from_numpy(is_pad).bool()
+
+        # print("\nqpos data shape: ", qpos_data.shape)
+        # print("qpos: ", qpos_data)
 
         # channel last
         image_data = torch.einsum('k h w c -> k c h w', image_data)
@@ -174,7 +233,7 @@ def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_s
     val_dataset = EpisodicDataset(val_indices, dataset_dir, camera_names, norm_stats)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size_val, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)
-
+    assert False
     return train_dataloader, val_dataloader, norm_stats, train_dataset.is_sim
 
 

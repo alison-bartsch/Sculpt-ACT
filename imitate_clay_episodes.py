@@ -18,6 +18,11 @@ from visualize_episodes import save_videos
 
 from sim_env import BOX_POSE
 
+import robomail.vision as vis
+from robot_utils import *
+from pointBERT.tools import builder
+from pointBERT.utils.config import cfg_from_yaml_file
+
 import IPython
 e = IPython.embed
 
@@ -40,10 +45,15 @@ def main(args):
     # else:
     #     from aloha_scripts.constants import TASK_CONFIGS
     #     task_config = TASK_CONFIGS[task_name]
-    dataset_dir = task_config['dataset_dir']
-    num_episodes = task_config['num_episodes']
-    episode_len = task_config['episode_len']
+    # dataset_dir = task_config['dataset_dir']
+    # num_episodes = task_config['num_episodes']
+    # episode_len = task_config['episode_len']
     # camera_names = task_config['camera_names']
+
+    dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Embedded_X'
+    # dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Aug24_Human_Demos/X'
+    num_episodes = 899 # 900
+    episode_len = 6 # maximum episode lengths
 
     # fixed parameters
     state_dim = 14
@@ -115,9 +125,15 @@ def main(args):
     torch.save(best_state_dict, ckpt_path)
     print(f'Best ckpt, val loss {min_val_loss:.6f} @ epoch{best_epoch}')
 
+    # save the best val loss to a txt file
+    with open(ckpt_dir + '/best_vall_loss.txt', 'w') as f:
+        string = str(best_epoch) + ':   ' + str(min_val_loss)
+        f.write(string)
+
 
 def make_policy(policy_class, policy_config):
     if policy_class == 'ACT':
+        # print("\nPolicy Config: ", policy_config)
         policy = ACTPolicy(policy_config)
     elif policy_class == 'CNNMLP':
         policy = CNNMLPPolicy(policy_config)
@@ -145,6 +161,131 @@ def get_image(ts, camera_names):
     curr_image = torch.from_numpy(curr_image / 255.0).float().cuda().unsqueeze(0)
     return curr_image
 
+def clay_eval_bc(config, ckpt_name, save_episode=True):
+    # initialize the robot and reset joints
+    fa = FrankaArm()
+
+    # initialize the cameras
+    cam2 = vis.CameraClass(2)
+    cam3 = vis.CameraClass(3)
+    cam4 = vis.CameraClass(4)
+    cam5 = vis.CameraClass(5)
+
+    # initialize the 3D vision code
+    pcl_vis = vis.Vision3D()
+
+    set_seed(1000)
+    ckpt_dir = config['ckpt_dir']
+    state_dim = config['state_dim']
+    real_robot = config['real_robot']
+    policy_class = config['policy_class']
+    # onscreen_render = config['onscreen_render']
+    policy_config = config['policy_config']
+    # camera_names = config['camera_names']
+    max_timesteps = config['episode_len']
+    # task_name = config['task_name']
+    temporal_agg = config['temporal_agg']
+    onscreen_cam = 'angle'
+
+    # load policy and stats
+    ckpt_path = os.path.join(ckpt_dir, ckpt_name)
+    policy = make_policy(policy_class, policy_config)
+    loading_status = policy.load_state_dict(torch.load(ckpt_path))
+    print(loading_status)
+    policy.cuda()
+    policy.eval()
+    print(f'Loaded: {ckpt_path}')
+    stats_path = os.path.join(ckpt_dir, f'dataset_stats.pkl')
+    with open(stats_path, 'rb') as f:
+        stats = pickle.load(f)
+
+    # load point-BERT
+    device = torch.device('cuda')
+    enc_checkpoint = torch.load('embedding_experiments/exp15/checkpoint', map_location=torch.device('cpu'))
+    encoder_head = enc_checkpoint['encoder_head'].to(device)
+    config = cfg_from_yaml_file('cfgs/ModelNet_models/PointTransformer.yaml')
+    model_config = config.model
+    pointbert = builder.model_builder(model_config)
+    weights_path = 'experiments/Point-BERT/Mixup_models/downloaded/Point-BERT.pth'
+    pointbert.load_model_from_ckpt(weights_path)
+    pointbert.to(device)
+
+    query_frequency = policy_config['num_queries']
+    if temporal_agg:
+        query_frequency = 1
+        num_queries = policy_config['num_queries']
+
+    max_timesteps = int(max_timesteps * 1) # may increase for real-world tasks
+    num_rollouts = 5
+    for rollout_id in range(num_rollouts):
+        ### evaluation loop
+        if temporal_agg:
+            all_time_actions = torch.zeros([max_timesteps, max_timesteps+num_queries, state_dim]).cuda()
+
+        with torch.inference_mode():
+            fa.reset_joints()
+            fa.reset_pose()
+            fa.open_gripper()
+
+            # move to observation pose
+            observation_pose = np.array([0.6, 0, 0.325])
+            pose = fa.get_pose()
+            pose.translation = observation_pose
+            fa.goto_pose(pose)
+
+            for t in range(max_timesteps):
+                # get the current state (point cloud)
+                _, _, pc2, _ = cam2._get_next_frame()
+                _, _, pc3, _ = cam3._get_next_frame()
+                _, _, pc4, _ = cam4._get_next_frame()
+                _, _, pc5, _ = cam5._get_next_frame()
+                pointcloud = pcl_vis.fuse_point_clouds(pc2, pc3, pc4, pc5)
+
+                # pass the point cloud through Point-BERT to get the latent representation
+                state = pointcloud.to(torch.float32)
+                states = torch.unsqueeze(state, 0).to(device)
+
+                # pass through Point-BERT
+                tokenized_states = pointbert(states)
+                pcl_embed = encoder_head(tokenized_states)
+                print("pcl_embed shape: ", pcl_embed.shape)
+
+                # set qpos to ones
+                qpos = np.ones(5)
+                qpos = torch.from_numpy(qpos).float().cuda().unsqueeze(0)
+
+                ### query policy
+                if config['poicy_class'] == "ACT":
+                    if t % query_frequency == 0:
+                        all_actions = policy(qpos, pcl_embed)
+                    if temporal_agg:
+                        all_time_actions[[t], t:t+num_queries] = all_actions
+                        actions_for_curr_step = all_time_actions[:, t]
+                        actions_populated = torch.all(actions_for_curr_step != 0, axis=1)
+                        actions_for_curr_step = actions_for_curr_step[actions_populated]
+                        k = 0.01
+                        exp_weights = np.exp(-k * np.arange(len(actions_for_curr_step)))
+                        exp_weights = exp_weights / exp_weights.sum()
+                        exp_weights = torch.from_numpy(exp_weights).cuda().unsqueeze(dim=1)
+                        raw_action = (actions_for_curr_step * exp_weights).sum(dim=0, keepdim=True)
+                    else:
+                        raw_action = all_actions[:, t % query_frequency] 
+
+                ### post-process actions
+                raw_action = raw_action.squeeze(0).cpu().numpy()
+                # convert raw action into robot action space
+                robot_action = get_real_action_from_normalized(raw_action)
+                # execute the grasp action and print the action
+                goto_grasp(fa, robot_action[0], robot_action[1], robot_action[2], 0, 0, robot_action[3], robot_action[4])
+                print("\nGRASP ACTION: ", robot_action)
+
+        # wait for ENTER key for the clay to be reset
+        input("Press ENTER to continue when clay has been reset...")
+
+
+
+
+
 
 def eval_bc(config, ckpt_name, save_episode=True):
     set_seed(1000)
@@ -156,7 +297,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
     policy_config = config['policy_config']
     # camera_names = config['camera_names']
     max_timesteps = config['episode_len']
-    task_name = config['task_name']
+    # task_name = config['task_name']
     temporal_agg = config['temporal_agg']
     onscreen_cam = 'angle'
 
@@ -327,15 +468,33 @@ def eval_bc(config, ckpt_name, save_episode=True):
     return success_rate, avg_return
 
 
+# def forward_pass(data, policy):
+#     qpos_data, state_data, action_data, is_pad = data
+#     qpos_data, state_data, action_data, is_pad = qpos_data.cuda(), state_data.cuda(), action_data.cuda(), is_pad.cuda()
+#     return policy(qpos_data, state_data, action_data, is_pad) # TODO remove None
+
+
 def forward_pass(data, policy):
-    image_data, qpos_data, action_data, is_pad = data
-    print("\nImage Data Shape: ", image_data.shape)
-    print("\nqpos data shape: ", qpos_data.shape)
-    print("\nAction data shape: ", action_data.shape)
-    print("\nispad: ", is_pad)
+    qpos_data, state_data, action_data, is_pad = data
+    qpos_data, state_data, action_data, is_pad = qpos_data.cuda(), state_data.cuda(), action_data.cuda(), is_pad.cuda()
+
+    # load point-BERT
+    device = torch.device('cuda')
+    enc_checkpoint = torch.load('embedding_experiments/exp15/checkpoint', map_location=torch.device('cpu'))
+    encoder_head = enc_checkpoint['encoder_head'].to(device)
+    config = cfg_from_yaml_file('cfgs/ModelNet_models/PointTransformer.yaml')
+    model_config = config.model
+    pointbert = builder.model_builder(model_config)
+    weights_path = 'experiments/Point-BERT/Mixup_models/downloaded/Point-BERT.pth'
+    pointbert.load_model_from_ckpt(weights_path)
+    pointbert.to(device)
+
+    print("\nSuccessfully imported point-bert!!!")
     assert False
-    image_data, qpos_data, action_data, is_pad = image_data.cuda(), qpos_data.cuda(), action_data.cuda(), is_pad.cuda()
-    return policy(qpos_data, image_data, action_data, is_pad) # TODO remove None
+    tokenized_states = pointbert(state_data)
+    pcl_embed = encoder_head(tokenized_states)
+
+    return policy(qpos_data, pcl_embed, action_data, is_pad)
 
 
 def train_bc(train_dataloader, val_dataloader, config):
@@ -344,6 +503,8 @@ def train_bc(train_dataloader, val_dataloader, config):
     seed = config['seed']
     policy_class = config['policy_class']
     policy_config = config['policy_config']
+
+    # print("Policy Class: ", policy_class)
 
     set_seed(seed)
 
