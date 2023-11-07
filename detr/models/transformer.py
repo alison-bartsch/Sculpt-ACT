@@ -47,6 +47,8 @@ class Transformer(nn.Module):
                 nn.init.xavier_uniform_(p)
 
     def forward(self, src, mask, query_embed, pos_embed, latent_input=None, proprio_input=None, additional_pos_embed=None):
+        # print("\n\nSRC Shape: ", src.shape)
+        
         # TODO flatten only when input has H and W
         if len(src.shape) == 4: # has H and W
             # flatten NxCxHxW to HWxNxC
@@ -64,6 +66,7 @@ class Transformer(nn.Module):
             addition_input = torch.stack([latent_input, proprio_input], axis=0)
             src = torch.cat([addition_input, src], axis=0)
         else:
+            # print("SRC: ", src.shape)
             assert len(src.shape) == 3
             # flatten NxHWxC to HWxNxC
             bs, hw, c = src.shape

@@ -31,6 +31,82 @@ class ClayDataset(torch.utils.data.Dataset):
         idx = self.episode_idxs[index]
         traj_path = self.dataset_dir + '/Trajectory' + str(idx)
         # print("\nTrajectory path: ", traj_path)
+        # assert False
+
+        states = []
+        actions = []
+        j = 0
+
+        # print("\n\n\nPath: ", traj_path + '/s_embed' + str(j))
+
+        # load the entire trajectory
+        # while exists(traj_path + '/state' + str(j) + '.npy'):
+        while exists(traj_path + '/state' + str(j) + '.npy'):
+            # print("Path exists!")
+            s = np.load(traj_path + '/state' + str(j) + '.npy')
+            # s = torch.from_numpy(s).float()
+            states.append(s)
+
+            if j != 0:
+                a = np.load(traj_path + '/action' + str(j-1) + '.npy')
+                # a = torch.from_numpy(a).float()
+                actions.append(a)
+                # print("action appended")
+            j+=1
+
+        # print("\n\nActions: ", actions)
+        episode_len = len(actions)
+        # print("\n\nEpisode len: ", episode_len)
+        # print("\n\n\n\n\n\n")
+        start_ts = np.random.choice(episode_len)
+        # print("\nStart ts: ", start_ts)
+        state = states[start_ts]
+        action = actions[start_ts:]
+        # print("\nlen(action): ", len(action))
+        action = np.stack(action, axis=0)
+        action_len = episode_len - start_ts
+
+        qpos = np.ones(self.action_shape[1])
+        padded_action = np.zeros(self.action_shape, dtype=np.float32)
+        # print("\nPadded Action Shape: ", padded_action.shape)
+        # print("Action shape: ", action.shape)
+
+        padded_action[:action_len] = action
+        is_pad = np.zeros(self.max_len)
+        is_pad[action_len:] = 1
+
+        # construct observations
+        state_data = torch.from_numpy(state)
+        qpos_data = torch.from_numpy(qpos).float()
+        action_data = torch.from_numpy(padded_action).float()
+        is_pad = torch.from_numpy(is_pad).bool()
+
+        return qpos_data, state_data, action_data, is_pad
+
+
+class ClayDatasetEmbedded(torch.utils.data.Dataset):
+    def __init__(self, episode_idxs, dataset_dir):
+        """
+        NOTE: The point clouds and actions are already normalized.
+        """
+        super(ClayDatasetEmbedded).__init__()
+        self.dataset_dir = dataset_dir
+        self.episode_idxs = episode_idxs
+        self.max_len = 6 # maximum number of actions for X trajectory
+        self.action_shape = (self.max_len, 5)
+    
+    def __len__(self):
+        """
+        Return the number of episodes in the dataset (i.e. the number of actions in the trajectory folder)
+        """
+        return len(self.episode_idxs)
+
+    def __getitem__(self, index):
+        sample_full_episode = True # hardcode
+
+        idx = self.episode_idxs[index]
+        traj_path = self.dataset_dir + '/Trajectory' + str(idx)
+        # print("\nTrajectory path: ", traj_path)
 
         states = []
         actions = []
@@ -211,6 +287,8 @@ def load_clay_data(dataset_dir, num_episodes, batch_size_train, batch_size_val):
     # construct dataset and dataloader
     train_dataset = ClayDataset(train_indices, dataset_dir)
     val_dataset = ClayDataset(val_indices, dataset_dir)
+    # train_dataset = ClayDatasetEmbedded(train_indices, dataset_dir)
+    # val_dataset = ClayDatasetEmbedded(val_indices, dataset_dir)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size_val, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)
 
