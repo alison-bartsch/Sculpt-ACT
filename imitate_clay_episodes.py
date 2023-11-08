@@ -429,7 +429,6 @@ def plot_history(train_history, validation_history, num_epochs, ckpt_dir, seed):
         val_values = [summary[key].item() for summary in validation_history]
         plt.plot(np.linspace(0, num_epochs-1, len(train_history)), train_values, label='train')
         plt.plot(np.linspace(0, num_epochs-1, len(validation_history)), val_values, label='validation')
-        # plt.ylim([-0.1, 1])
         plt.tight_layout()
         plt.legend()
         plt.title(key)
