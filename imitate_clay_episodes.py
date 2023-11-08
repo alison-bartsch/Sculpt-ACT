@@ -20,8 +20,12 @@ from sim_env import BOX_POSE
 
 import robomail.vision as vis
 from robot_utils import *
+from dynamics.dynamics_model import EncoderHead
 from pointBERT.tools import builder
 from pointBERT.utils.config import cfg_from_yaml_file
+
+import json
+from os.path import join
 
 import IPython
 e = IPython.embed
@@ -54,6 +58,9 @@ def main(args):
     dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Aug24_Human_Demos/X'
     num_episodes = 899 # 900
     episode_len = 6 # maximum episode lengths
+    encoder_frozen = False
+    pre_trained_encoder = False
+    action_pred = True
 
     # fixed parameters
     state_dim = 14
@@ -91,6 +98,9 @@ def main(args):
         # 'task_name': task_name,
         'seed': args['seed'],
         'temporal_agg': args['temporal_agg'],
+        'encoder_frozen': encoder_frozen,
+        'pre_trained_encoder': pre_trained_encoder,
+        'action_pred': action_pred
         # 'camera_names': camera_names,
         # 'real_robot': not is_sim
     }
@@ -108,7 +118,7 @@ def main(args):
         exit()
 
     # train_dataloader, val_dataloader, stats, _ = load_data(dataset_dir, num_episodes, batch_size_train, batch_size_val)
-    train_dataloader, val_dataloader = load_clay_data(dataset_dir, num_episodes, batch_size_train, batch_size_val)
+    train_dataloader, val_dataloader = load_clay_data(dataset_dir, num_episodes, batch_size_train, batch_size_val, action_pred)
 
     # save dataset stats
     if not os.path.isdir(ckpt_dir):
@@ -125,10 +135,10 @@ def main(args):
     torch.save(best_state_dict, ckpt_path)
     print(f'Best ckpt, val loss {min_val_loss:.6f} @ epoch{best_epoch}')
 
-    # save the best val loss to a txt file
-    with open(ckpt_dir + '/best_vall_loss.txt', 'w') as f:
-        string = str(best_epoch) + ':   ' + str(min_val_loss)
-        f.write(string)
+    # # save the best val loss to a txt file
+    # with open(ckpt_dir + '/best_val_loss.txt', 'w') as f:
+    #     string = str(best_epoch) + ':   ' + str(min_val_loss)
+    #     f.write(string)
 
 
 def make_policy(policy_class, policy_config):
@@ -493,15 +503,36 @@ def train_bc(train_dataloader, val_dataloader, config):
     seed = config['seed']
     policy_class = config['policy_class']
     policy_config = config['policy_config']
+    encoder_frozen = config['encoder_frozen']
+    pre_trained_encoder = config['pre_trained_encoder']
+    action_pred = config['action_pred']
 
-    # print("Policy Class: ", policy_class)
+    # create dictionary of all the key training info
+    params_dict = {'num_epochs': num_epochs,
+                   'seed': seed,
+                   'policy_class': policy_class,
+                   'lr': policy_config['lr'],
+                   'kl_weight': policy_config['kl_weight'],
+                   'chunk_size': policy_config['num_queries'],
+                   'hidden_dim': policy_config['hidden_dim'],
+                   'encoder_frozen': encoder_frozen,
+                   'pre_trained_encoder': pre_trained_encoder,
+                   'action_pred': action_pred
+                }
+    with open(join(ckpt_dir, 'params.json'), 'w') as f:
+        json.dump(params_dict, f) 
 
     set_seed(seed)
 
     # load point-BERT
     device = torch.device('cuda')
-    enc_checkpoint = torch.load('pointBERT/encoder_weights/checkpoint', map_location=torch.device('cpu'))
-    encoder_head = enc_checkpoint['encoder_head'].to(device)
+    if pre_trained_encoder:
+        enc_checkpoint = torch.load('pointBERT/encoder_weights/checkpoint', map_location=torch.device('cpu'))
+        encoder_head = enc_checkpoint['encoder_head'].to(device)
+    else:
+        encoded_dim = 768
+        latent_dim = 512
+        encoder_head = EncoderHead(encoded_dim, latent_dim).to(device)
     config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
     model_config = config.model
     pointbert = builder.model_builder(model_config)
@@ -543,8 +574,12 @@ def train_bc(train_dataloader, val_dataloader, config):
         print(summary_string)
 
         # training
-        encoder_head.train()
-        pointbert.train()
+        if encoder_frozen:
+            encoder_head.eval()
+            pointbert.eval()
+        else:
+            encoder_head.train()
+            pointbert.train()
         policy.train()
         optimizer.zero_grad()
         for batch_idx, data in enumerate(train_dataloader):
@@ -576,6 +611,12 @@ def train_bc(train_dataloader, val_dataloader, config):
     ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{best_epoch}_seed_{seed}.ckpt')
     torch.save(best_state_dict, ckpt_path)
     print(f'Training finished:\nSeed {seed}, val loss {min_val_loss:.6f} at epoch {best_epoch}')
+
+    # TODO: SAVE HERE!!!
+    # save the best val loss to a txt file
+    with open(ckpt_dir + '/best_val_loss.txt', 'w') as f:
+        string = str(best_epoch) + ':   ' + str(min_val_loss)
+        f.write(string)
 
     # save training curves
     plot_history(train_history, validation_history, num_epochs, ckpt_dir, seed)
