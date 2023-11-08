@@ -23,11 +23,14 @@ from robot_utils import *
 from pointBERT.tools import builder
 from pointBERT.utils.config import cfg_from_yaml_file
 
+from frankapy import FrankaArm
+
 import IPython
 e = IPython.embed
 
 def main(args):
     set_seed(1)
+
     # command line parameters
     is_eval = args['eval']
     ckpt_dir = args['ckpt_dir']
@@ -56,7 +59,7 @@ def main(args):
     episode_len = 6 # maximum episode lengths
 
     # fixed parameters
-    state_dim = 14
+    state_dim = 5 #14
     lr_backbone = 1e-5
     backbone = 'resnet18' # TODO: FIX THIS!
     if policy_class == 'ACT':
@@ -162,7 +165,7 @@ def get_image(ts, camera_names):
     return curr_image
 
 def clay_eval_bc(config, ckpt_name, save_episode=True):
-    from frankapy import FrankaArm
+    # from frankapy import FrankaArm
     # initialize the robot and reset joints
     fa = FrankaArm()
 
@@ -178,7 +181,6 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
     set_seed(1000)
     ckpt_dir = config['ckpt_dir']
     state_dim = config['state_dim']
-    real_robot = config['real_robot']
     policy_class = config['policy_class']
     # onscreen_render = config['onscreen_render']
     policy_config = config['policy_config']
@@ -186,7 +188,6 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
     max_timesteps = config['episode_len']
     # task_name = config['task_name']
     temporal_agg = config['temporal_agg']
-    onscreen_cam = 'angle'
 
     # load policy and stats
     ckpt_path = os.path.join(ckpt_dir, ckpt_name)
@@ -196,9 +197,9 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
     policy.cuda()
     policy.eval()
     print(f'Loaded: {ckpt_path}')
-    stats_path = os.path.join(ckpt_dir, f'dataset_stats.pkl')
-    with open(stats_path, 'rb') as f:
-        stats = pickle.load(f)
+    # stats_path = os.path.join(ckpt_dir, f'dataset_stats.pkl')
+    # with open(stats_path, 'rb') as f:
+    #     stats = pickle.load(f)
 
     # load point-BERT
     device = torch.device('cuda')
@@ -240,15 +241,17 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
                 _, _, pc3, _ = cam3._get_next_frame()
                 _, _, pc4, _ = cam4._get_next_frame()
                 _, _, pc5, _ = cam5._get_next_frame()
-                pointcloud = pcl_vis.fuse_point_clouds(pc2, pc3, pc4, pc5)
+                pointcloud = pcl_vis.fuse_point_clouds(pc2, pc3, pc4, pc5, vis=True)
 
                 # pass the point cloud through Point-BERT to get the latent representation
-                state = pointcloud.to(torch.float32)
+                state = torch.from_numpy(pointcloud).to(torch.float32)
                 states = torch.unsqueeze(state, 0).to(device)
+                print("states shape: ", states.shape)
 
                 # pass through Point-BERT
                 tokenized_states = pointbert(states)
                 pcl_embed = encoder_head(tokenized_states)
+                pcl_embed = torch.unsqueeze(pcl_embed, 1)
                 print("pcl_embed shape: ", pcl_embed.shape)
 
                 # set qpos to ones
@@ -256,29 +259,43 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
                 qpos = torch.from_numpy(qpos).float().cuda().unsqueeze(0)
 
                 ### query policy
-                if config['poicy_class'] == "ACT":
-                    if t % query_frequency == 0:
-                        all_actions = policy(qpos, pcl_embed)
-                    if temporal_agg:
-                        all_time_actions[[t], t:t+num_queries] = all_actions
-                        actions_for_curr_step = all_time_actions[:, t]
-                        actions_populated = torch.all(actions_for_curr_step != 0, axis=1)
-                        actions_for_curr_step = actions_for_curr_step[actions_populated]
-                        k = 0.01
-                        exp_weights = np.exp(-k * np.arange(len(actions_for_curr_step)))
-                        exp_weights = exp_weights / exp_weights.sum()
-                        exp_weights = torch.from_numpy(exp_weights).cuda().unsqueeze(dim=1)
-                        raw_action = (actions_for_curr_step * exp_weights).sum(dim=0, keepdim=True)
-                    else:
-                        raw_action = all_actions[:, t % query_frequency] 
+                # if config['poicy_class'] == "ACT":
+                if t % query_frequency == 0:
+                    all_actions = policy(qpos, pcl_embed)
+                if temporal_agg:
+                    print("all time action shape: ", all_time_actions.shape)
+
+                    all_time_actions[[t], t:t+num_queries] = all_actions
+                    actions_for_curr_step = all_time_actions[:, t]
+                    actions_populated = torch.all(actions_for_curr_step != 0, axis=1)
+                    actions_for_curr_step = actions_for_curr_step[actions_populated]
+                    k = 0.01
+                    exp_weights = np.exp(-k * np.arange(len(actions_for_curr_step)))
+                    exp_weights = exp_weights / exp_weights.sum()
+                    exp_weights = torch.from_numpy(exp_weights).cuda().unsqueeze(dim=1)
+                    raw_action = (actions_for_curr_step * exp_weights).sum(dim=0, keepdim=True)
+                else:
+                    print("raw action...")
+                    raw_action = all_actions[:, t % query_frequency] 
 
                 ### post-process actions
+                print("Raw action: ", raw_action)
                 raw_action = raw_action.squeeze(0).cpu().numpy()
                 # convert raw action into robot action space
                 robot_action = get_real_action_from_normalized(raw_action)
                 # execute the grasp action and print the action
                 goto_grasp(fa, robot_action[0], robot_action[1], robot_action[2], 0, 0, robot_action[3], robot_action[4])
                 print("\nGRASP ACTION: ", robot_action)
+
+                # wait here
+                time.sleep(3)
+
+                # open the gripper
+                fa.open_gripper()
+
+                # move to observation pose
+                pose.translation = observation_pose
+                fa.goto_pose(pose)
 
         # wait for ENTER key for the clay to be reset
         input("Press ENTER to continue when clay has been reset...")
@@ -612,5 +629,14 @@ if __name__ == '__main__':
     parser.add_argument('--hidden_dim', action='store', type=int, help='hidden_dim', required=False)
     parser.add_argument('--dim_feedforward', action='store', type=int, help='dim_feedforward', required=False)
     parser.add_argument('--temporal_agg', action='store_true')
+
+    args = parser.parse_args()
+    print("args: ", args)
+
+    args_dict = vars(args)
+    print("vars: ", args_dict)
+    main(args_dict)
+    # assert False
     
-    main(vars(parser.parse_args()))
+    # main(vars(parser.parse_args()))
+    # main(vars(args))
