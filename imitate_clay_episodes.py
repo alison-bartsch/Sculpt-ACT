@@ -53,8 +53,8 @@ def main(args):
     # episode_len = task_config['episode_len']
     # camera_names = task_config['camera_names']
 
-    dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Embedded_X'
-    # dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Aug24_Human_Demos/X'
+    # dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Embedded_X'
+    dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Aug24_Human_Demos/X'
     num_episodes = 899 # 900
     episode_len = 6 # maximum episode lengths
 
@@ -492,25 +492,14 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
 #     return policy(qpos_data, state_data, action_data, is_pad) # TODO remove None
 
 
-def forward_pass(data, policy):
+def forward_pass(data, policy, pointbert, encoder_head):
     qpos_data, state_data, action_data, is_pad = data
     qpos_data, state_data, action_data, is_pad = qpos_data.cuda(), state_data.cuda(), action_data.cuda(), is_pad.cuda()
 
-    # load point-BERT
-    device = torch.device('cuda')
-    enc_checkpoint = torch.load('pointBERT/encoder_weights/checkpoint', map_location=torch.device('cpu'))
-    encoder_head = enc_checkpoint['encoder_head'].to(device)
-    config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
-    model_config = config.model
-    pointbert = builder.model_builder(model_config)
-    weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
-    pointbert.load_model_from_ckpt(weights_path)
-    pointbert.to(device)
-
-    print("\nSuccessfully imported point-bert!!!")
-    assert False
+    state_data = state_data.to(torch.float32)
     tokenized_states = pointbert(state_data)
     pcl_embed = encoder_head(tokenized_states)
+    pcl_embed = torch.unsqueeze(pcl_embed, 1)
 
     return policy(qpos_data, pcl_embed, action_data, is_pad)
 
@@ -526,6 +515,17 @@ def train_bc(train_dataloader, val_dataloader, config):
 
     set_seed(seed)
 
+    # load point-BERT
+    device = torch.device('cuda')
+    enc_checkpoint = torch.load('pointBERT/encoder_weights/checkpoint', map_location=torch.device('cpu'))
+    encoder_head = enc_checkpoint['encoder_head'].to(device)
+    config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
+    model_config = config.model
+    pointbert = builder.model_builder(model_config)
+    weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
+    pointbert.load_model_from_ckpt(weights_path)
+    pointbert.to(device)
+
     policy = make_policy(policy_class, policy_config)
     policy.cuda()
     optimizer = make_optimizer(policy_class, policy)
@@ -538,10 +538,13 @@ def train_bc(train_dataloader, val_dataloader, config):
         print(f'\nEpoch {epoch}')
         # validation
         with torch.inference_mode():
+            encoder_head.eval()
+            pointbert.eval()
             policy.eval()
             epoch_dicts = []
             for batch_idx, data in enumerate(val_dataloader):
-                forward_dict = forward_pass(data, policy)
+                forward_dict = forward_pass(data, policy, pointbert, encoder_head)
+                # forward_dict = forward_pass(data, policy)
                 epoch_dicts.append(forward_dict)
             epoch_summary = compute_dict_mean(epoch_dicts)
             validation_history.append(epoch_summary)
@@ -557,10 +560,13 @@ def train_bc(train_dataloader, val_dataloader, config):
         print(summary_string)
 
         # training
+        encoder_head.train()
+        pointbert.train()
         policy.train()
         optimizer.zero_grad()
         for batch_idx, data in enumerate(train_dataloader):
-            forward_dict = forward_pass(data, policy)
+            forward_dict = forward_pass(data, policy, pointbert, encoder_head)
+            # forward_dict = forward_pass(data, policy)
             # backward
             loss = forward_dict['loss']
             loss.backward()

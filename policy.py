@@ -15,6 +15,8 @@ class ACTPolicy(nn.Module):
         self.kl_weight = args_override['kl_weight']
         print(f'KL Weight {self.kl_weight}')
 
+        # build the Point-BERT model
+
     # def __call__(self, qpos, image, actions=None, is_pad=None):
     #     env_state = None
     #     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
