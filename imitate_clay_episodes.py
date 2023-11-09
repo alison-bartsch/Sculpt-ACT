@@ -228,7 +228,7 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
                 # pass the point cloud through Point-BERT to get the latent representation
                 state = torch.from_numpy(pointcloud).to(torch.float32)
                 states = torch.unsqueeze(state, 0).to(device)
-                print("states shape: ", states.shape)
+                print("\nstates shape: ", states.shape)
 
                 # pass through Point-BERT
                 tokenized_states = pointbert(states)
