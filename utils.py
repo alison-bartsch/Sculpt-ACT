@@ -56,6 +56,72 @@ class ClayDataset(torch.utils.data.Dataset):
         episode_len = len(actions)
         start_ts = np.random.choice(episode_len)
         state = states[start_ts]
+        goal = states[-1]
+        action = actions[start_ts:]
+        action = np.stack(action, axis=0)
+        action_len = episode_len - start_ts
+
+        padded_action = np.zeros(self.action_shape, dtype=np.float32)
+
+        padded_action[:action_len] = action
+        is_pad = np.zeros(self.max_len)
+        is_pad[action_len:] = 1
+
+        # construct observations
+        state_data = torch.from_numpy(state)
+        goal_data = torch.from_numpy(goal).float()
+        action_data = torch.from_numpy(padded_action).float()
+        is_pad = torch.from_numpy(is_pad).bool()
+
+        return goal_data, state_data, action_data, is_pad
+class ClayDatasetPrev(torch.utils.data.Dataset):
+    def __init__(self, episode_idxs, dataset_dir, action_pred):
+        """
+        NOTE: The point clouds and actions are already normalized.
+        """
+        super(ClayDataset).__init__()
+        self.dataset_dir = dataset_dir
+        self.episode_idxs = episode_idxs
+        self.max_len = 6 # maximum number of actions for X trajectory
+        self.action_shape = (self.max_len, 5)
+        self.action_pred = action_pred
+    
+    def __len__(self):
+        """
+        Return the number of episodes in the dataset (i.e. the number of actions in the trajectory folder)
+        """
+        return len(self.episode_idxs)
+
+    def __getitem__(self, index):
+        sample_full_episode = True # hardcode
+
+        idx = self.episode_idxs[index]
+        traj_path = self.dataset_dir + '/Trajectory' + str(idx)
+
+        states = []
+        actions = []
+        j = 0
+
+        while exists(traj_path + '/state' + str(j) + '.npy'):
+            # if we are predicting grasp action, state is pcl and action is grasp
+            if self.action_pred:
+                s = np.load(traj_path + '/state' + str(j) + '.npy')
+            # if we are predicting intermediate states, state is grasp and action is intermediate state
+            else:
+                s = np.load(traj_path + '/action' + str(j) + '.npy')
+            states.append(s)
+
+            if j != 0:
+                if self.action_pred:
+                    a = np.load(traj_path + '/action' + str(j-1) + '.npy')
+                else:
+                    a = np.load(traj_path + '/state' + str(j) + '.npy')
+                actions.append(a)
+            j+=1
+
+        episode_len = len(actions)
+        start_ts = np.random.choice(episode_len)
+        state = states[start_ts]
         action = actions[start_ts:]
         action = np.stack(action, axis=0)
         action_len = episode_len - start_ts
@@ -279,6 +345,8 @@ def load_clay_data(dataset_dir, num_episodes, batch_size_train, batch_size_val, 
     # construct dataset and dataloader
     train_dataset = ClayDataset(train_indices, dataset_dir, action_pred)
     val_dataset = ClayDataset(val_indices, dataset_dir, action_pred)
+    # train_dataset = ClayDatasetPrev(train_indices, dataset_dir, action_pred)
+    # val_dataset = ClayDatasetPrev(val_indices, dataset_dir, action_pred)
     # train_dataset = ClayDatasetEmbedded(train_indices, dataset_dir)
     # val_dataset = ClayDatasetEmbedded(val_indices, dataset_dir)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)

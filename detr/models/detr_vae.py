@@ -70,7 +70,8 @@ class DETRVAE(nn.Module):
         self.encoder_action_proj = nn.Linear(5, hidden_dim) # project action to embedding
         self.encoder_joint_proj = nn.Linear(5, hidden_dim)  # project qpos to embedding
         self.latent_proj = nn.Linear(hidden_dim, self.latent_dim*2) # project hidden state to latent std, var
-        self.register_buffer('pos_table', get_sinusoid_encoding_table(1+1+num_queries, hidden_dim)) # [CLS], qpos, a_seq
+        # self.register_buffer('pos_table', get_sinusoid_encoding_table(1+1+num_queries, hidden_dim)) # [CLS], qpos, a_seq
+        self.register_buffer('pos_table', get_sinusoid_encoding_table(1+num_queries, hidden_dim)) # [CLS], qpos, a_seq
 
         # decoder extra parameters
         self.latent_out_proj = nn.Linear(self.latent_dim, hidden_dim) # project latent sample to embedding
@@ -148,11 +149,64 @@ class DETRVAE(nn.Module):
     
 
 
+    def forward(self, goal, state, env_state, actions=None, is_pad=None):
+        """
+        """
+        is_training = actions is not None # train or val
+        bs = state.shape[0]
+
+        ### Obtain latent z from action sequence
+        if is_training:
+            action_embed = self.encoder_action_proj(actions) # (bs, seq, hidden_dim)
+            # print("\naction embed: ", action_embed.shape)
+            cls_embed = self.cls_embed.weight # (1, hidden_dim)
+            cls_embed = torch.unsqueeze(cls_embed, axis=0).repeat(bs, 1, 1) # (bs, 1, hidden_dim)
+            # print("cls embed: ", cls_embed.shape)
+            encoder_input = torch.cat([cls_embed, action_embed], axis=1) # (bs, seq+1, hidden_dim)
+            # print("cat encoder: ", encoder_input.shape)
+            encoder_input = encoder_input.permute(1, 0, 2) # (seq+1, bs, hidden_dim)
+            # do not mask cls token
+            # cls_joint_is_pad = torch.full((bs, 2), False).to(state.device) # False: not a padding
+            cls_joint_is_pad = torch.full((bs, 1), False).to(state.device) # False: not a padding
+            is_pad = torch.cat([cls_joint_is_pad, is_pad], axis=1)  # (bs, seq+1)
+            # obtain position embedding
+            pos_embed = self.pos_table.clone().detach()
+            # print("\npre pos embed: ", pos_embed.shape)
+            pos_embed = pos_embed.permute(1, 0, 2)  # (seq+1, 1, hidden_dim)
+            # print("\nencoder input: ", encoder_input.shape)
+            # print("pos embed: ", pos_embed.shape)
+            # print("is pad: ", is_pad.shape)
+            encoder_output = self.encoder(encoder_input, pos=pos_embed, src_key_padding_mask=is_pad) # (seq+1, bs, hidden_dim)
+            encoder_output = encoder_output[0] # take cls output only # (bs, 1, hidden_dim)
+            latent_info = self.latent_proj(encoder_output) # (bs, 64)
+            mu = latent_info[:, :self.latent_dim] # (bs, 32)
+            logvar = latent_info[:, self.latent_dim:] # (bs, 32)
+            latent_sample = reparametrize(mu, logvar) # (bs, 32)
+            latent_input = self.latent_out_proj(latent_sample) # (bs, hidden_dim)
+        else:
+            mu = logvar = None
+            latent_sample = torch.zeros([bs, self.latent_dim], dtype=torch.float32).to(state.device)
+            latent_input = self.latent_out_proj(latent_sample)
+
+        if self.backbones is not None:
+            # state = torch.unsqueeze(state, axis=3)
+            # goal = torch.unsqueeze(goal, axis=3)
+            # src = torch.cat([state, goal], axis=3)
+            src = torch.cat([state, goal], axis=1)
+            # print("src shape: ", src.shape)
+            pos = torch.from_numpy(np.ones(src.shape)).cuda()
+            hs = self.transformer(src, None, self.query_embed.weight, pos, latent_input, None, self.additional_pos_embed.weight)[0]
+        else:
+            env_state = self.input_proj_env_state(env_state)
+            transformer_input = torch.cat([env_state], axis=1) # seq length = 2
+            hs = self.transformer(transformer_input, None, self.query_embed.weight, self.pos.weight)[0]
+        a_hat = self.action_head(hs) # (bs, seq, action_dim)
+        is_pad_hat = self.is_pad_head(hs)
+        return a_hat, is_pad_hat, [mu, logvar]
 
 
 
-
-    def forward(self, qpos, state, env_state, actions=None, is_pad=None):
+    def forward_prev(self, qpos, state, env_state, actions=None, is_pad=None):
         """
         qpos: batch, qpos_dim
         image: batch, num_cam, channel, height, width

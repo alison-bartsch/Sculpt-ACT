@@ -27,7 +27,7 @@ from pointBERT.utils.config import cfg_from_yaml_file
 import json
 from os.path import join
 
-from frankapy import FrankaArm
+# from frankapy import FrankaArm
 
 import IPython
 e = IPython.embed
@@ -282,7 +282,7 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
         input("Press ENTER to continue when clay has been reset...")
 
 
-def forward_pass(data, policy, pointbert, encoder_head):
+def forward_pass_prev(data, policy, pointbert, encoder_head):
     qpos_data, state_data, action_data, is_pad = data
     qpos_data, state_data, action_data, is_pad = qpos_data.cuda(), state_data.cuda(), action_data.cuda(), is_pad.cuda()
 
@@ -292,6 +292,25 @@ def forward_pass(data, policy, pointbert, encoder_head):
     pcl_embed = torch.unsqueeze(pcl_embed, 1)
 
     return policy(qpos_data, pcl_embed, action_data, is_pad)
+
+def forward_pass(data, policy, pointbert, encoder_head):
+    """
+    Version of forward pass with goal conditioning.
+    """
+    goal_data, state_data, action_data, is_pad = data
+    goal_data, state_data, action_data, is_pad = goal_data.cuda(), state_data.cuda(), action_data.cuda(), is_pad.cuda()
+
+    state_data = state_data.to(torch.float32)
+    tokenized_states = pointbert(state_data)
+    pcl_embed = encoder_head(tokenized_states)
+    pcl_embed = torch.unsqueeze(pcl_embed, 1)
+
+    goal_data = goal_data.to(torch.float32)
+    tokenized_goals = pointbert(goal_data)
+    goal_embed = encoder_head(tokenized_goals)
+    goal_embed = torch.unsqueeze(goal_embed, 1)
+
+    return policy(goal_embed, pcl_embed, action_data, is_pad)
 
 
 def train_bc(train_dataloader, val_dataloader, config):
@@ -318,6 +337,10 @@ def train_bc(train_dataloader, val_dataloader, config):
                 }
     with open(join(ckpt_dir, 'params.json'), 'w') as f:
         json.dump(params_dict, f) 
+
+    # save the policy config for experimental deployment
+    with open(join(ckpt_dir, 'policy_config.json'), 'w') as f:
+        json.dump(policy_config, f)
 
     set_seed(seed)
 
@@ -362,8 +385,17 @@ def train_bc(train_dataloader, val_dataloader, config):
 
             epoch_val_loss = epoch_summary['loss']
             if epoch_val_loss < min_val_loss:
+                print("Saving best encoder ckpts...")
                 min_val_loss = epoch_val_loss
                 best_ckpt_info = (epoch, min_val_loss, deepcopy(policy.state_dict()))
+
+                # save point-BERT checkpoints
+                torch.save(pointbert.state_dict(), join(ckpt_dir, 'best_pointbert.pth'))
+
+                # save encoder checkpoints
+                checkpoint = {'encoder_head': encoder_head}
+                torch.save(checkpoint, join(ckpt_dir, 'encoder_best_checkpoint'))
+
         print(f'Val loss:   {epoch_val_loss:.5f}')
         summary_string = ''
         for k, v in epoch_summary.items():
@@ -397,12 +429,13 @@ def train_bc(train_dataloader, val_dataloader, config):
         print(summary_string)
 
         if epoch % 100 == 0:
+            # save policy checkpoints
             ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{epoch}_seed_{seed}.ckpt')
             torch.save(policy.state_dict(), ckpt_path)
             plot_history(train_history, validation_history, epoch, ckpt_dir, seed)
 
-    ckpt_path = os.path.join(ckpt_dir, f'policy_last.ckpt')
-    torch.save(policy.state_dict(), ckpt_path)
+    # ckpt_path = os.path.join(ckpt_dir, f'policy_last.ckpt')
+    # torch.save(policy.state_dict(), ckpt_path)
 
     best_epoch, min_val_loss, best_state_dict = best_ckpt_info
     ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{best_epoch}_seed_{seed}.ckpt')
