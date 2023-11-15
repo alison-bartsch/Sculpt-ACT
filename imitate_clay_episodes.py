@@ -27,6 +27,8 @@ from pointBERT.utils.config import cfg_from_yaml_file
 import json
 from os.path import join
 
+import open3d as o3d
+
 # from frankapy import FrankaArm
 
 import IPython
@@ -187,27 +189,27 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
     policy.eval()
     print(f'Loaded: {ckpt_path}')
 
-    # # load point-BERT
-    # device = torch.device('cuda')
-    # enc_checkpoint = torch.load('pointBERT/encoder_weights/checkpoint', map_location=torch.device('cpu'))
-    # encoder_head = enc_checkpoint['encoder_head'].to(device)
-    # config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
-    # model_config = config.model
-    # pointbert = builder.model_builder(model_config)
-    # weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
-    # pointbert.load_model_from_ckpt(weights_path)
-    # pointbert.to(device)
-
-    # load point-BERT from file in ckpt_dir
+    # load point-BERT
     device = torch.device('cuda')
-    enc_checkpoint = torch.load(ckpt_dir + '/encoder_best_checkpoint', map_location=torch.device('cpu'))
+    enc_checkpoint = torch.load('pointBERT/encoder_weights/checkpoint', map_location=torch.device('cpu'))
     encoder_head = enc_checkpoint['encoder_head'].to(device)
     config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
     model_config = config.model
     pointbert = builder.model_builder(model_config)
-    weights_path = ckpt_dir + '/best_pointbert.pth' # 'pointBERT/point-BERT-weights/Point-BERT.pth'
+    weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
     pointbert.load_model_from_ckpt(weights_path)
     pointbert.to(device)
+
+    # # load point-BERT from file in ckpt_dir
+    # device = torch.device('cuda')
+    # enc_checkpoint = torch.load(ckpt_dir + '/encoder_best_checkpoint', map_location=torch.device('cpu'))
+    # encoder_head = enc_checkpoint['encoder_head'].to(device)
+    # config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
+    # model_config = config.model
+    # pointbert = builder.model_builder(model_config)
+    # weights_path = ckpt_dir + '/best_pointbert.pth' # 'pointBERT/point-BERT-weights/Point-BERT.pth'
+    # pointbert.load_model_from_ckpt(weights_path)
+    # pointbert.to(device)
 
     # import the goal point cloud
     goal = np.load('X_target.npy')
@@ -220,6 +222,10 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
     max_timesteps = int(max_timesteps * 1) # may increase for real-world tasks
     num_rollouts = 5
     for rollout_id in range(num_rollouts):
+        # create experiment folder
+        exp_name = 'INSERT'
+        os.mkdir('Experiments/' + exp_name)
+
         ### evaluation loop
         if temporal_agg:
             all_time_actions = torch.zeros([max_timesteps, max_timesteps+num_queries, state_dim]).cuda()
@@ -243,6 +249,19 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
                 _, _, pc5, _ = cam5._get_next_frame()
                 pointcloud = pcl_vis.fuse_point_clouds(pc2, pc3, pc4, pc5, vis=True)
 
+                # visualize the state and target and save as png 
+                pcl_o3d = o3d.geometry.PointCloud()
+                pcl_o3d.points = o3d.utility.Vector3dVector(pointcloud)
+                pcl_o3d_colors = np.tile(np.array([0,0,1]), (len(pointcloud),1))
+                pcl_o3d.colors = o3d.utility.Vector3dVector(pcl_o3d_colors)
+
+                goal_o3d = o3d.geometry.PointCloud()
+                goal_o3d.points = o3d.utility.Vector3dVector(goal)
+                goal_o3d_colors = np.tile(np.array([1,0,0]), (len(goal),1))
+                goal_o3d.colors = o3d.utility.Vector3dVector(goal_o3d_colors)
+
+                pcl_vis.pcl_to_image(pcl_o3d, goal_o3d, 'Experiments/' + exp_name + '/pointclouds' + str(t) + '.png')
+
                 # pass the point cloud through Point-BERT to get the latent representation
                 state = torch.from_numpy(pointcloud).to(torch.float32)
                 states = torch.unsqueeze(state, 0).to(device)
@@ -257,9 +276,9 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
                 goal_embed = encoder_head(tokenized_goals)
                 goal_embed = torch.unsqueeze(goal_embed, 1)
 
-                # set qpos to ones
-                qpos = np.ones(5)
-                qpos = torch.from_numpy(qpos).float().cuda().unsqueeze(0)
+                # # set qpos to ones
+                # qpos = np.ones(5)
+                # qpos = torch.from_numpy(qpos).float().cuda().unsqueeze(0)
 
                 ### query policy
                 if t % query_frequency == 0:
