@@ -72,6 +72,10 @@ def main(args):
                          'nheads': nheads,
                         #  'camera_names': camera_names,
                          }
+        
+        # if additional flag
+            # load policy_config from file in ckpt_dir
+
     elif policy_class == 'CNNMLP':
         policy_config = {'lr': args['lr'], 'lr_backbone': lr_backbone, 'backbone' : backbone, 'num_queries': 1,}
     else:
@@ -183,16 +187,30 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
     policy.eval()
     print(f'Loaded: {ckpt_path}')
 
-    # load point-BERT
+    # # load point-BERT
+    # device = torch.device('cuda')
+    # enc_checkpoint = torch.load('pointBERT/encoder_weights/checkpoint', map_location=torch.device('cpu'))
+    # encoder_head = enc_checkpoint['encoder_head'].to(device)
+    # config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
+    # model_config = config.model
+    # pointbert = builder.model_builder(model_config)
+    # weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
+    # pointbert.load_model_from_ckpt(weights_path)
+    # pointbert.to(device)
+
+    # load point-BERT from file in ckpt_dir
     device = torch.device('cuda')
-    enc_checkpoint = torch.load('pointBERT/encoder_weights/checkpoint', map_location=torch.device('cpu'))
+    enc_checkpoint = torch.load(ckpt_dir + '/encoder_best_checkpoint', map_location=torch.device('cpu'))
     encoder_head = enc_checkpoint['encoder_head'].to(device)
     config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
     model_config = config.model
     pointbert = builder.model_builder(model_config)
-    weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
+    weights_path = ckpt_dir + '/best_pointbert.pth' # 'pointBERT/point-BERT-weights/Point-BERT.pth'
     pointbert.load_model_from_ckpt(weights_path)
     pointbert.to(device)
+
+    # import the goal point cloud
+    goal = np.load('X_target.npy')
 
     query_frequency = policy_config['num_queries']
     if temporal_agg:
@@ -228,13 +246,16 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
                 # pass the point cloud through Point-BERT to get the latent representation
                 state = torch.from_numpy(pointcloud).to(torch.float32)
                 states = torch.unsqueeze(state, 0).to(device)
-                print("\nstates shape: ", states.shape)
-
-                # pass through Point-BERT
                 tokenized_states = pointbert(states)
                 pcl_embed = encoder_head(tokenized_states)
                 pcl_embed = torch.unsqueeze(pcl_embed, 1)
-                print("pcl_embed shape: ", pcl_embed.shape)
+                
+                # pass the goal through Point-BERT
+                goal = torch.from_numpy(goal).to(torch.float32)
+                goals = torch.unsqueeze(goal, 0).to(device)
+                tokenized_goals = pointbert(goals)
+                goal_embed = encoder_head(tokenized_goals)
+                goal_embed = torch.unsqueeze(goal_embed, 1)
 
                 # set qpos to ones
                 qpos = np.ones(5)
@@ -242,7 +263,8 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
 
                 ### query policy
                 if t % query_frequency == 0:
-                    all_actions = policy(qpos, pcl_embed)
+                    # all_actions = policy(qpos, pcl_embed)
+                    all_actions = policy(goal_embed, pcl_embed)
                 if temporal_agg:
                     print("all time action shape: ", all_time_actions.shape)
 
