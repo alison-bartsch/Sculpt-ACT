@@ -51,7 +51,7 @@ def main(args):
     num_episodes = 899 # 900
     episode_len = 6 # maximum episode lengths
     encoder_frozen = False
-    pre_trained_encoder = False
+    pre_trained_encoder = True
     action_pred = True
 
     # fixed parameters
