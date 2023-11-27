@@ -262,19 +262,39 @@ def clay_eval_bc(config, ckpt_name, save_episode=True):
 
                 pcl_vis.pcl_to_image(pcl_o3d, goal_o3d, 'Experiments/' + exp_name + '/pointclouds' + str(t) + '.png')
 
-                # pass the point cloud through Point-BERT to get the latent representation
-                state = torch.from_numpy(pointcloud).to(torch.float32)
-                states = torch.unsqueeze(state, 0).to(device)
-                tokenized_states = pointbert(states)
-                pcl_embed = encoder_head(tokenized_states)
-                pcl_embed = torch.unsqueeze(pcl_embed, 1)
-                
-                # pass the goal through Point-BERT
-                goal = torch.from_numpy(goal).to(torch.float32)
-                goals = torch.unsqueeze(goal, 0).to(device)
-                tokenized_goals = pointbert(goals)
-                goal_embed = encoder_head(tokenized_goals)
-                goal_embed = torch.unsqueeze(goal_embed, 1)
+                pointbert_pos_embedding = False
+                if pointbert_pos_embedding == True:
+                    # pass the point cloud through Point-BERT to get the latent representation
+                    state = torch.from_numpy(pointcloud).to(torch.float32)
+                    states = torch.unsqueeze(state, 0).to(device)
+                    tokenized_states, pointbert_states_pos = pointbert(states, return_pos=True)
+                    pcl_embed = encoder_head(tokenized_states)
+                    pcl_embed = torch.unsqueeze(pcl_embed, 1)
+                    state_pos = encoder_head(pointbert_states_pos)
+                    state_pos = torch.unsqueeze(state_pos, 1)
+                    
+                    # pass the goal through Point-BERT
+                    goal = torch.from_numpy(goal).to(torch.float32)
+                    goals = torch.unsqueeze(goal, 0).to(device)
+                    tokenized_goals, pointbert_goals_pos = pointbert(goals, return_pos=True)
+                    goal_embed = encoder_head(tokenized_goals)
+                    goal_embed = torch.unsqueeze(goal_embed, 1)
+                    goal_pos = encoder_head(pointbert_goals_pos)
+                    goal_pos = torch.unsqueeze(goal_pos, 1)
+                else:
+                    # pass the point cloud through Point-BERT to get the latent representation
+                    state = torch.from_numpy(pointcloud).to(torch.float32)
+                    states = torch.unsqueeze(state, 0).to(device)
+                    tokenized_states = pointbert(states)
+                    pcl_embed = encoder_head(tokenized_states)
+                    pcl_embed = torch.unsqueeze(pcl_embed, 1)
+                    
+                    # pass the goal through Point-BERT
+                    goal = torch.from_numpy(goal).to(torch.float32)
+                    goals = torch.unsqueeze(goal, 0).to(device)
+                    tokenized_goals = pointbert(goals)
+                    goal_embed = encoder_head(tokenized_goals)
+                    goal_embed = torch.unsqueeze(goal_embed, 1)
 
                 # # set qpos to ones
                 # qpos = np.ones(5)
@@ -334,7 +354,7 @@ def forward_pass_prev(data, policy, pointbert, encoder_head):
 
     return policy(qpos_data, pcl_embed, action_data, is_pad)
 
-def forward_pass(data, policy, pointbert, encoder_head):
+def forward_pass_no_pos(data, policy, pointbert, encoder_head):
     """
     Version of forward pass with goal conditioning.
     """
@@ -352,6 +372,42 @@ def forward_pass(data, policy, pointbert, encoder_head):
     goal_embed = torch.unsqueeze(goal_embed, 1)
 
     return policy(goal_embed, pcl_embed, action_data, is_pad)
+
+def forward_pass(data, policy, pointbert, encoder_head, pointbert_pos_embedding = False):
+    """
+    Version of forward pass with goal conditioning.
+    """
+    goal_data, state_data, action_data, is_pad = data
+    goal_data, state_data, action_data, is_pad = goal_data.cuda(), state_data.cuda(), action_data.cuda(), is_pad.cuda()
+
+    if pointbert_pos_embedding == True:
+        state_data = state_data.to(torch.float32)
+        tokenized_states, pointbert_states_pos = pointbert(state_data, return_pos=True)
+        pcl_embed = encoder_head(tokenized_states)
+        pcl_embed = torch.unsqueeze(pcl_embed, 1)
+        state_pos = encoder_head(pointbert_states_pos)
+        state_pos = torch.unsqueeze(state_pos, 1)
+
+        goal_data = goal_data.to(torch.float32)
+        tokenized_goals, pointbert_goal_pos = pointbert(goal_data, return_pos=True)
+        goal_embed = encoder_head(tokenized_goals)
+        goal_embed = torch.unsqueeze(goal_embed, 1)
+        goal_pos = encoder_head(pointbert_goal_pos)
+        goal_pos = torch.unsqueeze(goal_pos, 1)
+        return policy(goal_embed, pcl_embed, action_data, is_pad, goal_pos, state_pos)
+    else:
+        state_data = state_data.to(torch.float32)
+        tokenized_states = pointbert(state_data)
+        pcl_embed = encoder_head(tokenized_states)
+        pcl_embed = torch.unsqueeze(pcl_embed, 1)
+
+        goal_data = goal_data.to(torch.float32)
+        tokenized_goals = pointbert(goal_data)
+        goal_embed = encoder_head(tokenized_goals)
+        goal_embed = torch.unsqueeze(goal_embed, 1)
+        return policy(goal_embed, pcl_embed, action_data, is_pad)
+    
+    
 
 
 def train_bc(train_dataloader, val_dataloader, config):
@@ -418,7 +474,7 @@ def train_bc(train_dataloader, val_dataloader, config):
             policy.eval()
             epoch_dicts = []
             for batch_idx, data in enumerate(val_dataloader):
-                forward_dict = forward_pass(data, policy, pointbert, encoder_head)
+                forward_dict = forward_pass(data, policy, pointbert, encoder_head, pointbert_pos_embedding=False)
                 # forward_dict = forward_pass(data, policy)
                 epoch_dicts.append(forward_dict)
             epoch_summary = compute_dict_mean(epoch_dicts)

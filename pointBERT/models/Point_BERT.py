@@ -205,17 +205,14 @@ class PointTransformer(nn.Module):
         print_log(f'[Transformer] Successful Loading the ckpt from {bert_ckpt_path}', logger = 'Transformer')
 
 
-    def forward(self, pts):
+    def forward(self, pts, return_pos=False):
         # divide the point clo  ud in the same form. This is important
         neighborhood, center = self.group_divider(pts)
         # encoder the input cloud blocks
         group_input_tokens = self.encoder(neighborhood)  #  B G N
-        # print("\n\nGroup input tokens shape: ", group_input_tokens.shape)
         group_input_tokens = self.reduce_dim(group_input_tokens)
-        # print("\n\nGroup input tokens shape after reduce dim: ", group_input_tokens.shape)
         # prepare cls
         cls_tokens = self.cls_token.expand(group_input_tokens.size(0), -1, -1)  
-        # print("\nCls tokens: ", cls_tokens.shape)
         cls_pos = self.cls_pos.expand(group_input_tokens.size(0), -1, -1)  
         # add pos embedding
         pos = self.pos_embed(center)
@@ -225,12 +222,10 @@ class PointTransformer(nn.Module):
         # transformer
         x = self.blocks(x, pos)
         x = self.norm(x)
-        return x
-        # # print("\nOutput x: ", x)
-        # concat_f = torch.cat([x[:,0], x[:, 1:].max(1)[0]], dim = -1)
-        # ret = self.cls_head_finetune(concat_f)
-        # # print("\nShape cls head: ", ret.shape)
-        # return ret
+        if return_pos:
+            return x, pos
+        else:
+            return x
 
 class MaskTransformer(nn.Module):
     def __init__(self, config, **kwargs):

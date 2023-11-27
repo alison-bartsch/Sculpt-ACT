@@ -41,20 +41,15 @@ class ACTPolicy(nn.Module):
     #         a_hat, _, (_, _) = self.model(qpos, image, env_state) # no action, sample from prior
     #         return a_hat
 
-    def __call__(self, goal, state, actions=None, is_pad=None):
+    def __call__(self, goal, state, actions=None, is_pad=None, goal_pos=None, state_pos=None):
         env_state = None
 
         if actions is not None: # training time
             actions = actions[:, :self.model.num_queries]
             is_pad = is_pad[:, :self.model.num_queries]
-
-            # print("\nModel num queries: ", self.model.num_queries)
-
-            a_hat, is_pad_hat, (mu, logvar) = self.model(goal, state, env_state, actions, is_pad)
+            a_hat, is_pad_hat, (mu, logvar) = self.model(goal, state, env_state, actions, is_pad, goal_pos, state_pos)
             total_kld, dim_wise_kld, mean_kld = kl_divergence(mu, logvar)
             loss_dict = dict()
-            # print("\nactions: ", actions.shape)
-            # print("a_hat: ", a_hat.shape)
             all_l1 = F.l1_loss(actions, a_hat, reduction='none')
             l1 = (all_l1 * ~is_pad.unsqueeze(-1)).mean()
             loss_dict['l1'] = l1
