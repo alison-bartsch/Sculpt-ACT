@@ -148,8 +148,7 @@ class DETRVAE(nn.Module):
     #     return a_hat, is_pad_hat, [mu, logvar]
     
 
-
-    def forward(self, goal, state, env_state, actions=None, is_pad=None, goal_pos=None, state_pos=None):
+    def forward(self, goal, state, env_state, actions=None, is_pad=None, concat_goal=False, delta_goal=False, no_pos_embed=False):
         """
         """
         is_training = actions is not None # train or val
@@ -182,14 +181,25 @@ class DETRVAE(nn.Module):
             latent_input = self.latent_out_proj(latent_sample)
 
         if self.backbones is not None:
-            src = torch.cat([state, goal], axis=1)
-            # src = torch.cat([state, goal, state-goal], axis=1)
-            if goal_pos is not None and state_pos is not None:
-                pos = torch.cat([state_pos, goal_pos], axis=1)
+            if concat_goal:
+                src = torch.cat([state, goal], axis=1)
+            elif delta_goal:
+                src = torch.cat([state, goal, state-goal], axis=1)
             else:
-                # pos = torch.from_numpy(np.ones(src.shape)).cuda()
-                # pos = None
+                src = state
+
+            if no_pos_embed:
                 pos = torch.from_numpy(np.zeros(src.shape)).cuda()
+            else:
+                pos = torch.from_numpy(np.ones(src.shape)).cuda()
+
+            # # src = torch.cat([state, goal, state-goal], axis=1)
+            # if goal_pos is not None and state_pos is not None:
+            #     pos = torch.cat([state_pos, goal_pos], axis=1)
+            # else:
+            #     # pos = torch.from_numpy(np.ones(src.shape)).cuda()
+            #     # pos = None
+            #     pos = torch.from_numpy(np.zeros(src.shape)).cuda()
             hs = self.transformer(src, None, self.query_embed.weight, pos, latent_input, None, self.additional_pos_embed.weight)[0]
         else:
             env_state = self.input_proj_env_state(env_state)

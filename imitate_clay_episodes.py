@@ -20,7 +20,8 @@ from sim_env import BOX_POSE
 
 import robomail.vision as vis
 from robot_utils import *
-from dynamics.dynamics_model import EncoderHead
+# from dynamics.dynamics_model import EncoderHead
+from embeddings.embeddings import EncoderHead, EncoderHeadFiLM
 from pointBERT.tools import builder
 from pointBERT.utils.config import cfg_from_yaml_file
 
@@ -51,7 +52,7 @@ def main(args):
     num_episodes = 899 # 900
     episode_len = 6 # maximum episode lengths
     encoder_frozen = False
-    pre_trained_encoder = True
+    pre_trained_encoder = False
     action_pred = True
 
     # fixed parameters
@@ -96,9 +97,14 @@ def main(args):
         'temporal_agg': args['temporal_agg'],
         'encoder_frozen': encoder_frozen,
         'pre_trained_encoder': pre_trained_encoder,
-        'action_pred': action_pred
+        'action_pred': action_pred,
         # 'camera_names': camera_names,
         # 'real_robot': not is_sim
+        'concat_goal': args['concat_goal'],
+        'delta_goal': args['delta_goal'],
+        'film_goal': args['film_goal'],
+        'no_pos_embed': args['no_pos_embed'],
+        'stopping_action': args['stopping_action'],
     }
 
     if is_eval:
@@ -373,28 +379,24 @@ def forward_pass_no_pos(data, policy, pointbert, encoder_head):
 
     return policy(goal_embed, pcl_embed, action_data, is_pad)
 
-def forward_pass(data, policy, pointbert, encoder_head, pointbert_pos_embedding = False):
+def forward_pass(data, policy, pointbert, encoder_head, concat_goal, delta_goal, film_goal, no_pos_embed):
     """
     Version of forward pass with goal conditioning.
     """
     goal_data, state_data, action_data, is_pad = data
     goal_data, state_data, action_data, is_pad = goal_data.cuda(), state_data.cuda(), action_data.cuda(), is_pad.cuda()
 
-    if pointbert_pos_embedding == True:
+    if film_goal:
         state_data = state_data.to(torch.float32)
-        tokenized_states, pointbert_states_pos = pointbert(state_data, return_pos=True)
-        pcl_embed = encoder_head(tokenized_states)
-        pcl_embed = torch.unsqueeze(pcl_embed, 1)
-        state_pos = encoder_head(pointbert_states_pos)
-        state_pos = torch.unsqueeze(state_pos, 1)
-
+        tokenized_states = pointbert(state_data)
         goal_data = goal_data.to(torch.float32)
-        tokenized_goals, pointbert_goal_pos = pointbert(goal_data, return_pos=True)
-        goal_embed = encoder_head(tokenized_goals)
-        goal_embed = torch.unsqueeze(goal_embed, 1)
-        goal_pos = encoder_head(pointbert_goal_pos)
-        goal_pos = torch.unsqueeze(goal_pos, 1)
-        return policy(goal_embed, pcl_embed, action_data, is_pad, goal_pos, state_pos)
+        tokenized_goals = pointbert(goal_data)
+
+        pcl_embed = encoder_head(tokenized_states, tokenized_goals)
+        pcl_embed = torch.unsqueeze(pcl_embed, 1)
+        goal_embed = None
+        return policy(goal_embed, pcl_embed, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
+
     else:
         state_data = state_data.to(torch.float32)
         tokenized_states = pointbert(state_data)
@@ -405,8 +407,7 @@ def forward_pass(data, policy, pointbert, encoder_head, pointbert_pos_embedding 
         tokenized_goals = pointbert(goal_data)
         goal_embed = encoder_head(tokenized_goals)
         goal_embed = torch.unsqueeze(goal_embed, 1)
-        return policy(goal_embed, pcl_embed, action_data, is_pad)
-    
+        return policy(goal_embed, pcl_embed, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)    
     
 
 
@@ -420,6 +421,13 @@ def train_bc(train_dataloader, val_dataloader, config):
     pre_trained_encoder = config['pre_trained_encoder']
     action_pred = config['action_pred']
 
+    # model variants
+    concat_goal = config['concat_goal']
+    delta_goal = config['delta_goal']
+    film_goal = config['film_goal']
+    no_pos_embed = config['no_pos_embed']
+    stopping_action = config['stopping_action'] # TODO: add this flag to influence the dataloader
+
     # create dictionary of all the key training info
     params_dict = {'num_epochs': num_epochs,
                    'seed': seed,
@@ -430,7 +438,12 @@ def train_bc(train_dataloader, val_dataloader, config):
                    'hidden_dim': policy_config['hidden_dim'],
                    'encoder_frozen': encoder_frozen,
                    'pre_trained_encoder': pre_trained_encoder,
-                   'action_pred': action_pred
+                   'action_pred': action_pred,
+                   'concat_goal': concat_goal,
+                   'delta_goal': delta_goal,
+                   'film_goal': film_goal,
+                   'no_pos_embed': no_pos_embed,
+                   'stopping_action': stopping_action
                 }
     with open(join(ckpt_dir, 'params.json'), 'w') as f:
         json.dump(params_dict, f) 
@@ -449,7 +462,11 @@ def train_bc(train_dataloader, val_dataloader, config):
     else:
         encoded_dim = 768
         latent_dim = 512
-        encoder_head = EncoderHead(encoded_dim, latent_dim).to(device)
+        if film_goal:
+            encoder_head = EncoderHeadFiLM(encoded_dim, latent_dim, encoded_dim).to(device)
+        else:
+            encoder_head = EncoderHead(encoded_dim, latent_dim).to(device)
+
     config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
     model_config = config.model
     pointbert = builder.model_builder(model_config)
@@ -474,7 +491,8 @@ def train_bc(train_dataloader, val_dataloader, config):
             policy.eval()
             epoch_dicts = []
             for batch_idx, data in enumerate(val_dataloader):
-                forward_dict = forward_pass(data, policy, pointbert, encoder_head, pointbert_pos_embedding=False)
+                forward_dict = forward_pass(data, policy, pointbert, encoder_head, concat_goal, delta_goal, film_goal, no_pos_embed)
+                # forward_dict = forward_pass(data, policy, pointbert, encoder_head, pointbert_pos_embedding=False)
                 # forward_dict = forward_pass(data, policy)
                 epoch_dicts.append(forward_dict)
             epoch_summary = compute_dict_mean(epoch_dicts)
@@ -509,7 +527,8 @@ def train_bc(train_dataloader, val_dataloader, config):
         policy.train()
         optimizer.zero_grad()
         for batch_idx, data in enumerate(train_dataloader):
-            forward_dict = forward_pass(data, policy, pointbert, encoder_head)
+            forward_dict = forward_pass(data, policy, pointbert, encoder_head, concat_goal, delta_goal, film_goal, no_pos_embed)
+            # forward_dict = forward_pass(data, policy, pointbert, encoder_head)
             # forward_dict = forward_pass(data, policy)
             # backward
             loss = forward_dict['loss']
@@ -584,6 +603,14 @@ if __name__ == '__main__':
     parser.add_argument('--hidden_dim', action='store', type=int, help='hidden_dim', required=False)
     parser.add_argument('--dim_feedforward', action='store', type=int, help='dim_feedforward', required=False)
     parser.add_argument('--temporal_agg', action='store_true')
+
+    # modifications 
+    parser.add_argument('--concat_goal', action='store', type=bool, default=False, help='Goal point cloud concatenation condition', required=False)
+    parser.add_argument('--delta_goal', action='store', type=bool, default=False, help='Goal point cloud delta with state concatentation', required=False)
+    parser.add_argument('--film_goal', action='store', type=bool, default=True, help='Goal point cloud FiLM condition', required=False)
+    parser.add_argument('--no_pos_embed', action='store', type=bool, default=True, help='No additional pos embedding (already in PointBERT embedding)', required=False)
+    parser.add_argument('--stopping_action', action='store', type=bool, default=False, help='Add action dimension for stoping token', required=False)
+    
 
     # args = parser.parse_args()
     # print("args: ", args)
