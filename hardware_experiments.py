@@ -20,7 +20,8 @@ from sim_env import BOX_POSE
 
 import robomail.vision as vis
 from robot_utils import *
-from dynamics.dynamics_model import EncoderHead
+# from dynamics.dynamics_model import EncoderHead
+from embeddings.embeddings import EncoderHead, EncoderHeadFiLM
 from pointBERT.tools import builder
 from pointBERT.utils.config import cfg_from_yaml_file
 
@@ -34,6 +35,15 @@ from imitate_clay_episodes import *
 
 import IPython
 e = IPython.embed
+
+def recenter_pcl(pointcloud):
+    """
+    Assume pcl is a numpy array.
+    """
+    pcl = o3d.geometry.PointCloud()
+    pcl.points = o3d.utility.Vector3dVector(pointcloud)
+    goal_ctr = pcl.get_center()
+    return pointcloud - goal_ctr
 
 def main(args):
     set_seed(1)
@@ -72,6 +82,8 @@ def main(args):
         policy_config = {'lr': args['lr'], 'lr_backbone': lr_backbone, 'backbone' : backbone, 'num_queries': 1,}
     else:
         raise NotImplementedError
+    
+    print("\n")
 
     exp_config = {
         'ckpt_dir': ckpt_dir,
@@ -138,6 +150,20 @@ def harware_eval(config, ckpt_name, save_episode=True):
     max_timesteps = config['episode_len']
     temporal_agg = config['temporal_agg']
 
+    # load in the modifiers from params.json based on ckpt_dir
+    with open(ckpt_dir + '/params.json') as json_file:
+        params_config = json.load(json_file)
+
+    concat_goal = params_config['concat_goal']
+    delta_goal = params_config['delta_goal']
+    film_goal = params_config['film_goal']
+    no_pos_embed = params_config['no_pos_embed']
+    stopping_action = params_config['stopping_action']
+    pre_trained_encoder = params_config['pre_trained_encoder']
+
+    # experiment config
+    experiment_config = params_config.update(config)
+
     # load policy and stats
     ckpt_path = os.path.join(ckpt_dir, ckpt_name)
     policy = make_policy(policy_class, policy_config)
@@ -158,25 +184,48 @@ def harware_eval(config, ckpt_name, save_episode=True):
     # pointbert.load_model_from_ckpt(weights_path)
     # pointbert.to(device)
 
-    # load point-BERT from file in ckpt_dir
+    # # load point-BERT from file in ckpt_dir
+    # device = torch.device('cuda')
+    # enc_checkpoint = torch.load(ckpt_dir + '/encoder_best_checkpoint.zip', map_location=torch.device('cpu'))
+    # encoder_head = enc_checkpoint['encoder_head'].to(device)
+    # pointbert_config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
+    # model_config = pointbert_config.model
+    # pointbert = builder.model_builder(model_config)
+    # weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
+    # pointbert.load_model_from_ckpt(weights_path)
+    # pointbert.to(device)
+    # # config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
+    # # model_config = config.model
+    # # pointbert = builder.model_builder(model_config)
+    # # weights_path = ckpt_dir + '/best_pointbert.pth' # 'pointBERT/point-BERT-weights/Point-BERT.pth'
+    # # pointbert.load_model_from_ckpt(weights_path)
+    # # pointbert.to(device)
+
+    # load point-BERT
     device = torch.device('cuda')
-    enc_checkpoint = torch.load(ckpt_dir + '/encoder_best_checkpoint.zip', map_location=torch.device('cpu'))
-    encoder_head = enc_checkpoint['encoder_head'].to(device)
-    pointbert_config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
-    model_config = pointbert_config.model
+    if pre_trained_encoder:
+        enc_checkpoint = torch.load('pointBERT/encoder_weights/checkpoint', map_location=torch.device('cpu'))
+        encoder_head = enc_checkpoint['encoder_head'].to(device)
+    else:
+        encoded_dim = 768
+        latent_dim = 512
+        if film_goal:
+            encoder_head = EncoderHeadFiLM(encoded_dim, latent_dim, encoded_dim).to(device)
+        else:
+            encoder_head = EncoderHead(encoded_dim, latent_dim).to(device)
+
+    config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
+    model_config = config.model
     pointbert = builder.model_builder(model_config)
     weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
     pointbert.load_model_from_ckpt(weights_path)
     pointbert.to(device)
-    # config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
-    # model_config = config.model
-    # pointbert = builder.model_builder(model_config)
-    # weights_path = ckpt_dir + '/best_pointbert.pth' # 'pointBERT/point-BERT-weights/Point-BERT.pth'
-    # pointbert.load_model_from_ckpt(weights_path)
-    # pointbert.to(device)
 
     # import the goal point cloud
     goal = np.load('X_target.npy')
+
+    # reprocess goal if collected before new calibration
+    goal = recenter_pcl(goal)
 
     # create open3d goal object for visualization
     goal_o3d = o3d.geometry.PointCloud()
@@ -188,8 +237,11 @@ def harware_eval(config, ckpt_name, save_episode=True):
     goal = torch.from_numpy(goal).to(torch.float32)
     goals = torch.unsqueeze(goal, 0).to(device)
     tokenized_goals = pointbert(goals)
-    goal_embed = encoder_head(tokenized_goals)
-    goal_embed = torch.unsqueeze(goal_embed, 1)
+    if film_goal:
+        goal_embed = None
+    else:
+        goal_embed = encoder_head(tokenized_goals)
+        goal_embed = torch.unsqueeze(goal_embed, 1) 
 
     query_frequency = policy_config['num_queries']
     if temporal_agg:
@@ -200,10 +252,12 @@ def harware_eval(config, ckpt_name, save_episode=True):
     num_rollouts = 5
     for rollout_id in range(num_rollouts):
         # create experiment folder
-        exp_name = 'exp1'
+        exp_name = 'exp2'
         os.mkdir('Experiments/' + exp_name)
 
-        # save ckpt_name and associated model parameters???
+        # save the config file
+        with open(join('Experiments/' + exp_name + '/', 'experiment_params.json'), 'w') as f:
+            json.dump(experiment_config, f)
 
         ### evaluation loop
         if temporal_agg:
@@ -239,17 +293,19 @@ def harware_eval(config, ckpt_name, save_episode=True):
                 state = torch.from_numpy(pointcloud).to(torch.float32)
                 states = torch.unsqueeze(state, 0).to(device)
                 tokenized_states = pointbert(states)
-                pcl_embed = encoder_head(tokenized_states)
-                pcl_embed = torch.unsqueeze(pcl_embed, 1)
-
-                # # set qpos to ones
-                # qpos = np.ones(5)
-                # qpos = torch.from_numpy(qpos).float().cuda().unsqueeze(0)
+                if film_goal:
+                    pcl_embed = encoder_head(tokenized_states, tokenized_goals)
+                else:
+                    pcl_embed = encoder_head(tokenized_states)
+                pcl_embed = torch.unsqueeze(pcl_embed, 1) 
 
                 ### query policy
                 if t % query_frequency == 0:
                     # all_actions = policy(qpos, pcl_embed)
-                    all_actions = policy(goal_embed, pcl_embed)
+                    # all_actions = policy(goal_embed, pcl_embed)
+                    action_data = None
+                    is_pad = None
+                    all_actions = policy(goal_embed, pcl_embed, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
                 if temporal_agg:
                     print("all time action shape: ", all_time_actions.shape)
 
