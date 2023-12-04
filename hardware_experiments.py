@@ -20,8 +20,8 @@ from sim_env import BOX_POSE
 
 import robomail.vision as vis
 from robot_utils import *
-# from dynamics.dynamics_model import EncoderHead
-from embeddings.embeddings import EncoderHead, EncoderHeadFiLM
+from dynamics.dynamics_model import EncoderHead
+# from embeddings.embeddings import EncoderHead, EncoderHeadFiLM
 from pointBERT.tools import builder
 from pointBERT.utils.config import cfg_from_yaml_file
 
@@ -252,7 +252,7 @@ def harware_eval(config, ckpt_name, save_episode=True):
     num_rollouts = 5
     for rollout_id in range(num_rollouts):
         # create experiment folder
-        exp_name = 'exp4'
+        exp_name = 'exp5'
         os.mkdir('Experiments/' + exp_name)
 
         # save the config file
