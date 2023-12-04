@@ -20,8 +20,8 @@ from sim_env import BOX_POSE
 
 import robomail.vision as vis
 from robot_utils import *
-# from dynamics.dynamics_model import EncoderHead
-from embeddings.embeddings import EncoderHead, EncoderHeadFiLM
+from dynamics.dynamics_model import EncoderHead
+# from embeddings.embeddings import EncoderHead, EncoderHeadFiLM, EncoderHeadFiLMPretrained
 from pointBERT.tools import builder
 from pointBERT.utils.config import cfg_from_yaml_file
 
@@ -52,7 +52,7 @@ def main(args):
     num_episodes = 899 # 900
     episode_len = 6 # maximum episode lengths
     encoder_frozen = False
-    pre_trained_encoder = False
+    pre_trained_encoder = True
     action_pred = True
 
     # fixed parameters
@@ -459,6 +459,10 @@ def train_bc(train_dataloader, val_dataloader, config):
     if pre_trained_encoder:
         enc_checkpoint = torch.load('pointBERT/encoder_weights/checkpoint', map_location=torch.device('cpu'))
         encoder_head = enc_checkpoint['encoder_head'].to(device)
+        if film_goal:
+            encoded_dim = 768
+            latent_dim = 512
+            encoder_head = EncoderHeadFiLMPretrained(encoded_dim, latent_dim, encoder_head, encoded_dim).to(device)
     else:
         encoded_dim = 768
         latent_dim = 512
@@ -605,10 +609,10 @@ if __name__ == '__main__':
     parser.add_argument('--temporal_agg', action='store_true')
 
     # modifications 
-    parser.add_argument('--concat_goal', action='store', type=bool, default=False, help='Goal point cloud concatenation condition', required=False)
+    parser.add_argument('--concat_goal', action='store', type=bool, default=True, help='Goal point cloud concatenation condition', required=False)
     parser.add_argument('--delta_goal', action='store', type=bool, default=False, help='Goal point cloud delta with state concatentation', required=False)
-    parser.add_argument('--film_goal', action='store', type=bool, default=True, help='Goal point cloud FiLM condition', required=False)
-    parser.add_argument('--no_pos_embed', action='store', type=bool, default=True, help='No additional pos embedding (already in PointBERT embedding)', required=False)
+    parser.add_argument('--film_goal', action='store', type=bool, default=False, help='Goal point cloud FiLM condition', required=False)
+    parser.add_argument('--no_pos_embed', action='store', type=bool, default=False, help='No additional pos embedding (already in PointBERT embedding)', required=False)
     parser.add_argument('--stopping_action', action='store', type=bool, default=False, help='Add action dimension for stoping token', required=False)
     
 
