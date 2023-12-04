@@ -239,9 +239,7 @@ def harware_eval(config, ckpt_name, save_episode=True):
     goal = torch.from_numpy(goal).to(torch.float32)
     goals = torch.unsqueeze(goal, 0).to(device)
     tokenized_goals = pointbert(goals)
-    print("Tokensized goals: ", tokenized_goals.shape)
     if film_goal:
-        print("film goal!")
         goal_embed = None
     else:
         goal_embed = projection_head(tokenized_goals)
@@ -297,7 +295,6 @@ def harware_eval(config, ckpt_name, save_episode=True):
                 state = torch.from_numpy(pointcloud).to(torch.float32)
                 states = torch.unsqueeze(state, 0).to(device)
                 tokenized_states = pointbert(states)
-                print("Tokenized States: ", tokenized_states.shape)
                 if film_goal:
                     pcl_embed = projection_head(tokenized_states)
                     # pcl_embed = projection_head.forward(tokenized_states, tokenized_goals)
