@@ -20,8 +20,8 @@ from sim_env import BOX_POSE
 
 import robomail.vision as vis
 from robot_utils import *
-from dynamics.dynamics_model import EncoderHead
-# from embeddings.embeddings import EncoderHead, EncoderHeadFiLM
+# from dynamics.dynamics_model import EncoderHead
+from embeddings.embeddings import EncoderHead, EncoderHeadFiLM, EncoderHeadFiLMPretrained
 from pointBERT.tools import builder
 from pointBERT.utils.config import cfg_from_yaml_file
 
@@ -205,14 +205,16 @@ def harware_eval(config, ckpt_name, save_episode=True):
     device = torch.device('cuda')
     if pre_trained_encoder:
         enc_checkpoint = torch.load('pointBERT/encoder_weights/checkpoint', map_location=torch.device('cpu'))
-        encoder_head = enc_checkpoint['encoder_head'].to(device)
+        projection_head = enc_checkpoint['encoder_head'].to(device)
+        print("loaded encoder head...")
     else:
         encoded_dim = 768
         latent_dim = 512
         if film_goal:
-            encoder_head = EncoderHeadFiLM(encoded_dim, latent_dim, encoded_dim).to(device)
+            # encoder_head = EncoderHeadFiLM(encoded_dim, latent_dim, encoded_dim).to(device)
+            projection_head = EncoderHeadFiLMPretrained(encoded_dim, latent_dim, projection_head, encoded_dim).to(device)
         else:
-            encoder_head = EncoderHead(encoded_dim, latent_dim).to(device)
+            projection_head = EncoderHead(encoded_dim, latent_dim).to(device)
 
     config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
     model_config = config.model
@@ -237,10 +239,12 @@ def harware_eval(config, ckpt_name, save_episode=True):
     goal = torch.from_numpy(goal).to(torch.float32)
     goals = torch.unsqueeze(goal, 0).to(device)
     tokenized_goals = pointbert(goals)
+    print("Tokensized goals: ", tokenized_goals.shape)
     if film_goal:
+        print("film goal!")
         goal_embed = None
     else:
-        goal_embed = encoder_head(tokenized_goals)
+        goal_embed = projection_head(tokenized_goals)
         goal_embed = torch.unsqueeze(goal_embed, 1) 
 
     query_frequency = policy_config['num_queries']
@@ -252,7 +256,7 @@ def harware_eval(config, ckpt_name, save_episode=True):
     num_rollouts = 5
     for rollout_id in range(num_rollouts):
         # create experiment folder
-        exp_name = 'exp5'
+        exp_name = 'exp12'
         os.mkdir('Experiments/' + exp_name)
 
         # save the config file
@@ -293,10 +297,12 @@ def harware_eval(config, ckpt_name, save_episode=True):
                 state = torch.from_numpy(pointcloud).to(torch.float32)
                 states = torch.unsqueeze(state, 0).to(device)
                 tokenized_states = pointbert(states)
+                print("Tokenized States: ", tokenized_states.shape)
                 if film_goal:
-                    pcl_embed = encoder_head(tokenized_states, tokenized_goals)
+                    pcl_embed = projection_head(tokenized_states)
+                    # pcl_embed = projection_head.forward(tokenized_states, tokenized_goals)
                 else:
-                    pcl_embed = encoder_head(tokenized_states)
+                    pcl_embed = projection_head(tokenized_states)
                 pcl_embed = torch.unsqueeze(pcl_embed, 1) 
 
                 ### query policy

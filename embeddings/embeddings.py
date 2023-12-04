@@ -72,6 +72,7 @@ class EncoderHeadFiLMPretrained(nn.Module):
         self.film = FiLMBlock()
 
     def forward(self, encoded_pcl, encoded_goal):
+        print("Forward here!")
         x = torch.cat([encoded_pcl[:,0], encoded_pcl[:, 1:].max(1)[0]], dim = -1) # concatenation strategy from pointtransformer
         goal = torch.cat([encoded_goal[:,0], encoded_goal[:, 1:].max(1)[0]], dim = -1)
 
