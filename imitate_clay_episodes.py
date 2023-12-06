@@ -20,8 +20,8 @@ from sim_env import BOX_POSE
 
 import robomail.vision as vis
 from robot_utils import *
-from dynamics.dynamics_model import EncoderHead
-# from embeddings.embeddings import EncoderHead, EncoderHeadFiLM, EncoderHeadFiLMPretrained
+# from dynamics.dynamics_model import EncoderHead
+from embeddings.embeddings import EncoderHead, EncoderHeadFiLM, EncoderHeadFiLMPretrained
 from pointBERT.tools import builder
 from pointBERT.utils.config import cfg_from_yaml_file
 
@@ -509,7 +509,7 @@ def train_bc(train_dataloader, val_dataloader, config):
                 best_ckpt_info = (epoch, min_val_loss, deepcopy(policy.state_dict()))
 
                 # save point-BERT checkpoints
-                torch.save(pointbert.state_dict(), join(ckpt_dir, 'best_pointbert.pth'))
+                # torch.save(pointbert.state_dict(), join(ckpt_dir, 'best_pointbert.pth'))
 
                 # save encoder checkpoints
                 checkpoint = {'encoder_head': encoder_head}
@@ -609,10 +609,10 @@ if __name__ == '__main__':
     parser.add_argument('--temporal_agg', action='store_true')
 
     # modifications 
-    parser.add_argument('--concat_goal', action='store', type=bool, default=True, help='Goal point cloud concatenation condition', required=False)
+    parser.add_argument('--concat_goal', action='store', type=bool, default=False, help='Goal point cloud concatenation condition', required=False)
     parser.add_argument('--delta_goal', action='store', type=bool, default=False, help='Goal point cloud delta with state concatentation', required=False)
     parser.add_argument('--film_goal', action='store', type=bool, default=False, help='Goal point cloud FiLM condition', required=False)
-    parser.add_argument('--no_pos_embed', action='store', type=bool, default=False, help='No additional pos embedding (already in PointBERT embedding)', required=False)
+    parser.add_argument('--no_pos_embed', action='store', type=bool, default=True, help='No additional pos embedding (already in PointBERT embedding)', required=False)
     parser.add_argument('--stopping_action', action='store', type=bool, default=False, help='Add action dimension for stoping token', required=False)
     
 

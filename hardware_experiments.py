@@ -45,6 +45,9 @@ def recenter_pcl(pointcloud):
     goal_ctr = pcl.get_center()
     return pointcloud - goal_ctr
 
+def visualize_pred_action_sequence(pred_actions_list, goal):
+    pass
+
 def main(args):
     set_seed(1)
 
