@@ -2,14 +2,16 @@ import numpy as np
 import torch
 import os
 import h5py
+import open3d as o3d
 from os.path import exists
 from torch.utils.data import TensorDataset, DataLoader
+# from visualize_predicted_sequence import visualize_grasp
 
 import IPython
 e = IPython.embed
 
 class ClayDataset(torch.utils.data.Dataset):
-    def __init__(self, episode_idxs, dataset_dir, action_pred):
+    def __init__(self, episode_idxs, dataset_dir, action_pred, visualize_grasp):
         """
         NOTE: The point clouds and actions are already normalized.
         """
@@ -19,6 +21,7 @@ class ClayDataset(torch.utils.data.Dataset):
         self.max_len = 6 # maximum number of actions for X trajectory
         self.action_shape = (self.max_len, 5)
         self.action_pred = action_pred
+        self.visualize_grasp = visualize_grasp
     
     def __len__(self):
         """
@@ -54,9 +57,41 @@ class ClayDataset(torch.utils.data.Dataset):
             j+=1
 
         episode_len = len(actions)
+        print("\n\nEpisode len: ", episode_len)
         start_ts = np.random.choice(episode_len)
+        print("start ts: ", start_ts)
         state = states[start_ts]
+
+        # visualize state
+        state_o3d = o3d.geometry.PointCloud()
+        state_o3d.points = o3d.utility.Vector3dVector(state)
+        state_o3d_colors = np.tile(np.array([0,1,0]), (len(state),1))
+        state_o3d.colors = o3d.utility.Vector3dVector(state_o3d_colors)
+        # o3d.visualization.draw_geometries([state_o3d])
+
+        # visualize remaining state trajectory
+        remaining_states = states[start_ts:]
+        for i in range(len(remaining_states)):
+            pcl = remaining_states[i]
+            pcl_o3d = o3d.geometry.PointCloud()
+            pcl_o3d.points = o3d.utility.Vector3dVector(pcl)
+            pcl_o3d_colors = np.tile(np.array([0,0,1]), (len(pcl),1))
+            pcl_o3d.colors = o3d.utility.Vector3dVector(pcl_o3d_colors)
+            # o3d.visualization.draw_geometries([state_o3d, pcl_o3d])
+
+            if i != 0:
+                self.visualize_grasp(remaining_states[i-1], remaining_states[i], actions[i-1])
+
+
         goal = states[-1]
+
+        # visualize final state (goal)
+        goal_o3d = o3d.geometry.PointCloud()
+        goal_o3d.points = o3d.utility.Vector3dVector(goal)
+        goal_o3d_colors = np.tile(np.array([1,0,0]), (len(goal),1))
+        goal_o3d.colors = o3d.utility.Vector3dVector(goal_o3d_colors)
+        o3d.visualization.draw_geometries([pcl_o3d, goal_o3d])
+
         action = actions[start_ts:]
         action = np.stack(action, axis=0)
         action_len = episode_len - start_ts
@@ -72,6 +107,11 @@ class ClayDataset(torch.utils.data.Dataset):
         goal_data = torch.from_numpy(goal).float()
         action_data = torch.from_numpy(padded_action).float()
         is_pad = torch.from_numpy(is_pad).bool()
+
+        print("Goal Data: ", goal_data.shape)
+        print("State data: ", state_data.shape)
+        print("Action data: ", action_data)
+        print("Is pad: ", is_pad)
 
         return goal_data, state_data, action_data, is_pad
 class ClayDatasetPrev(torch.utils.data.Dataset):
@@ -334,7 +374,7 @@ def get_norm_stats(dataset_dir, num_episodes):
 
     return stats
 
-def load_clay_data(dataset_dir, num_episodes, batch_size_train, batch_size_val, action_pred):
+def load_clay_data(dataset_dir, num_episodes, batch_size_train, batch_size_val, action_pred, visualize_grasp):
     print(f'\nData from: {dataset_dir}\n')
     # obtain train test split
     train_ratio = 0.8
@@ -343,8 +383,8 @@ def load_clay_data(dataset_dir, num_episodes, batch_size_train, batch_size_val, 
     val_indices = shuffled_indices[int(train_ratio * num_episodes):]
 
     # construct dataset and dataloader
-    train_dataset = ClayDataset(train_indices, dataset_dir, action_pred)
-    val_dataset = ClayDataset(val_indices, dataset_dir, action_pred)
+    train_dataset = ClayDataset(train_indices, dataset_dir, action_pred, visualize_grasp)
+    val_dataset = ClayDataset(val_indices, dataset_dir, action_pred, visualize_grasp)
     # train_dataset = ClayDatasetPrev(train_indices, dataset_dir, action_pred)
     # val_dataset = ClayDatasetPrev(val_indices, dataset_dir, action_pred)
     # train_dataset = ClayDatasetEmbedded(train_indices, dataset_dir)
