@@ -138,6 +138,7 @@ def visualize_pred_action_sequence(pred_actions, state, goal):
         action = pred_actions[i][0]
         print("action: ", action)
         action = unnormalize_a(action)
+        print("unnormalized a: ", action)
 
         # center action at origin of the point cloud
         pcl_center = np.array([0.6, 0.0, 0.25])
@@ -259,7 +260,7 @@ def visualize_pred_action_sequence(pred_actions, state, goal):
 
         ctr_action = o3d.geometry.PointCloud()
         action_cloud = action_scaled[0:3].reshape(1,3)
-        print("Action: ", action_cloud)
+        # print("Action: ", action_cloud)
         ctr_action.points = o3d.utility.Vector3dVector(action_scaled[0:3].reshape(1,3))
         ctr_colors = np.tile(np.array([1, 0, 0]), (1,1))
         ctr_action.colors = o3d.utility.Vector3dVector(ctr_colors)
