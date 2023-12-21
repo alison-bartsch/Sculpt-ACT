@@ -418,7 +418,7 @@ def deploy_model(config, ckpt_name, save_episode=True):
                     print("all actions shape: ", all_actions.shape)
                     print("all actions: ", all_actions)
                     # assert False
-                    visualize_pred_action_sequence(all_actions, state, goal)
+                    # visualize_pred_action_sequence(all_actions, state, goal)
                 if temporal_agg:
                     print("all time action shape: ", all_time_actions.shape)
 

@@ -18,7 +18,7 @@ class ClayDataset(torch.utils.data.Dataset):
         super(ClayDataset).__init__()
         self.dataset_dir = dataset_dir
         self.episode_idxs = episode_idxs
-        self.max_len = 6 # maximum number of actions for X trajectory
+        self.max_len = 9 # 6 # maximum number of actions for X trajectory
         self.action_shape = (self.max_len, 5)
         self.action_pred = action_pred
         # self.visualize_grasp = visualize_grasp
@@ -39,10 +39,12 @@ class ClayDataset(torch.utils.data.Dataset):
         actions = []
         j = 0
 
-        while exists(traj_path + '/state' + str(j) + '.npy'):
+        # while exists(traj_path + '/state' + str(j) + '.npy'):
+        while exists(traj_path + '/pointcloud' + str(j) + '.npy'):
             # if we are predicting grasp action, state is pcl and action is grasp
             if self.action_pred:
-                s = np.load(traj_path + '/state' + str(j) + '.npy')
+                # s = np.load(traj_path + '/state' + str(j) + '.npy')
+                s = np.load(traj_path + '/pointcloud' + str(j) + '.npy')
             # if we are predicting intermediate states, state is grasp and action is intermediate state
             else:
                 s = np.load(traj_path + '/action' + str(j) + '.npy')
@@ -52,7 +54,8 @@ class ClayDataset(torch.utils.data.Dataset):
                 if self.action_pred:
                     a = np.load(traj_path + '/action' + str(j-1) + '.npy')
                 else:
-                    a = np.load(traj_path + '/state' + str(j) + '.npy')
+                    # a = np.load(traj_path + '/state' + str(j) + '.npy')
+                    a = np.load(traj_path + '/pointcloud' + str(j) + '.npy')
                 actions.append(a)
             j+=1
 
@@ -83,7 +86,8 @@ class ClayDataset(torch.utils.data.Dataset):
         #         self.visualize_grasp(remaining_states[i-1], remaining_states[i], actions[i-1])
 
 
-        goal = states[-1]
+        # goal = states[-1]
+        goal = np.load(traj_path + '/goal.npy')
 
         # # visualize final state (goal)
         # goal_o3d = o3d.geometry.PointCloud()
@@ -107,11 +111,6 @@ class ClayDataset(torch.utils.data.Dataset):
         goal_data = torch.from_numpy(goal).float()
         action_data = torch.from_numpy(padded_action).float()
         is_pad = torch.from_numpy(is_pad).bool()
-
-        # print("Goal Data: ", goal_data.shape)
-        # print("State data: ", state_data.shape)
-        # print("Action data: ", action_data)
-        # print("Is pad: ", is_pad)
 
         return goal_data, state_data, action_data, is_pad
 class ClayDatasetPrev(torch.utils.data.Dataset):
