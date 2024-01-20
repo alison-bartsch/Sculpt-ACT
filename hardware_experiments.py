@@ -257,7 +257,7 @@ def harware_eval(config, ckpt_name, save_episode=True):
     num_rollouts = 5
     for rollout_id in range(num_rollouts):
         # create experiment folder
-        exp_name = 'exp18'
+        exp_name = 'exp25'
         os.mkdir('Experiments/' + exp_name)
 
         # save the config file
@@ -342,6 +342,7 @@ def harware_eval(config, ckpt_name, save_episode=True):
 
                 # open the gripper
                 fa.open_gripper()
+                time.sleep(2)
 
                 # move to observation pose
                 pose.translation = observation_pose
