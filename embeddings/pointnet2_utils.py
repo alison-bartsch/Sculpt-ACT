@@ -70,19 +70,12 @@ def farthest_point_sample(xyz, npoint):
     """
     device = xyz.device
     B, N, C = xyz.shape
-    print("N: ", N)
     centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
-    print("centroids shape: ", centroids.shape)
     distance = torch.ones(B, N).to(device) * 1e10
     farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
     batch_indices = torch.arange(B, dtype=torch.long).to(device)
     for i in range(npoint):
         centroids[:, i] = farthest
-        
-        print("batch indices shape: ", batch_indices.shape)
-        print("farthest shape: ", farthest.shape)
-        print("xyz shape: ", xyz.shape)
-        print("indexed shape: ", xyz[batch_indices, farthest, :].shape)
         centroid = xyz[batch_indices, farthest, :].view(B, 1, 3)
         dist = torch.sum((xyz - centroid) ** 2, -1)
         mask = dist < distance
@@ -103,21 +96,13 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     """
     device = xyz.device
     B, N, C = xyz.shape
-    print("B: ", B)
-    print("N: ", N)
-    print("C: ", C)
-    print("n sample: ", nsample)
     _, S, _ = new_xyz.shape
-    print("S: ", S)
     group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
     sqrdists = square_distance(new_xyz, xyz)
     group_idx[sqrdists > radius ** 2] = N
     group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]
     group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample])
-    print("group first: ", group_first.shape)
-    print("group_idx: ", group_idx.shape)
     mask = group_idx == N
-    print("mask shape: ", mask.shape)
     group_idx[mask] = group_first[mask]
     return group_idx
 

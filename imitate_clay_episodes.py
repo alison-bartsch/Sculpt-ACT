@@ -30,6 +30,7 @@ import json
 from os.path import join
 
 import open3d as o3d
+from torch.optim.lr_scheduler import MultiStepLR
 
 # from frankapy import FrankaArm
 
@@ -54,7 +55,7 @@ def main(args):
     num_episodes = 900 # 10 # 899 # 900
     episode_len = 9 # 6 # maximum episode lengths
     encoder_frozen = False
-    pre_trained_encoder = True
+    pre_trained_encoder = False
     action_pred = True
 
     # fixed parameters
@@ -273,13 +274,17 @@ def train_bc(train_dataloader, val_dataloader, config):
     # load point-BERT
     device = torch.device('cuda')
     if pointnet:
-        pointcloud_embed = PointNet2() # pointnet (also rename pointbert to pointcloud_embed)
-        encoder_head = PointNetProjection() # the mlp on top of the point cloud embedding for pointnet
+        pointcloud_embed = PointNet2().to(device) # pointnet (also rename pointbert to pointcloud_embed)
+        encoder_head = PointNetProjection().to(device) # the mlp on top of the point cloud embedding for pointnet
         film_head = None
     else:
-
+        pretrained_path = '/home/alison/Documents/GitHub/Point-BERT/embedding_experiments/exp1_statenextstate_contrastive' # exp24_new_dataset_pointbert_unfrozen'
+            # exp24_new_dataset_pointbert_unfrozen
+            # exp22_new_dataset_pointbert_unfrozen
+            # exp1_statenextstate_contrastive
         if pre_trained_encoder:
-            enc_checkpoint = torch.load('pointBERT/encoder_weights/checkpoint', map_location=torch.device('cpu'))
+            # enc_checkpoint = torch.load('pointBERT/encoder_weights/checkpoint', map_location=torch.device('cpu'))
+            enc_checkpoint = torch.load(pretrained_path + '/checkpoint', map_location=torch.device('cpu'))
             encoder_head = enc_checkpoint['encoder_head'].to(device)
             if film_goal:
                 encoded_dim = 768
@@ -295,17 +300,23 @@ def train_bc(train_dataloader, val_dataloader, config):
                 encoder_head = EncoderHeadFiLM(encoded_dim, latent_dim, encoded_dim).to(device)
             else:
                 encoder_head = EncoderHead(encoded_dim, latent_dim).to(device)
+                film_head = None
 
         config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
         model_config = config.model
         pointcloud_embed = builder.model_builder(model_config)
-        weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
+        # weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
+        weights_path = pretrained_path + '/best_pointbert.pth'
         pointcloud_embed.load_model_from_ckpt(weights_path)
         pointcloud_embed.to(device)
 
     policy = make_policy(policy_class, policy_config)
     policy.cuda()
     optimizer = make_optimizer(policy_class, policy)
+
+    scheduler = MultiStepLR(optimizer,
+                    milestones=[500, 750, 1000, 1250, 1500, 1750],
+                    gamma=0.1)
 
     train_history = []
     validation_history = []
@@ -344,6 +355,14 @@ def train_bc(train_dataloader, val_dataloader, config):
                     checkpoint = {'encoder_head': encoder_head}
                 torch.save(checkpoint, join(ckpt_dir, 'encoder_best_checkpoint'))
 
+                torch.save({
+                    'base_model' : pointcloud_embed.state_dict(),
+                    'optimizer' : optimizer.state_dict(),
+                    'epoch' : epoch,
+                    'metrics' : dict(),
+                    'best_metrics' : dict(),
+                    }, os.path.join(ckpt_dir, 'best_pointbert.pth'))
+
         print(f'Val loss:   {epoch_val_loss:.5f}')
         summary_string = ''
         for k, v in epoch_summary.items():
@@ -369,6 +388,7 @@ def train_bc(train_dataloader, val_dataloader, config):
             optimizer.step()
             optimizer.zero_grad()
             train_history.append(detach_dict(forward_dict))
+        scheduler.step()
         epoch_summary = compute_dict_mean(train_history[(batch_idx+1)*epoch:(batch_idx+1)*(epoch+1)])
         epoch_train_loss = epoch_summary['loss']
         print(f'Train loss: {epoch_train_loss:.5f}')
@@ -437,10 +457,10 @@ if __name__ == '__main__':
     parser.add_argument('--temporal_agg', action='store_true')
 
     # modifications 
-    parser.add_argument('--concat_goal', action='store', type=bool, default=False, help='Goal point cloud concatenation condition', required=False)
+    parser.add_argument('--concat_goal', action='store', type=bool, default=True, help='Goal point cloud concatenation condition', required=False)
     parser.add_argument('--delta_goal', action='store', type=bool, default=False, help='Goal point cloud delta with state concatentation', required=False)
     parser.add_argument('--film_goal', action='store', type=bool, default=False, help='Goal point cloud FiLM condition', required=False)
-    parser.add_argument('--pointnet', action='store', type=bool, default=True, help='Alternate point cloud embedding', required=False)
+    parser.add_argument('--pointnet', action='store', type=bool, default=False, help='Alternate point cloud embedding', required=False)
     parser.add_argument('--no_pos_embed', action='store', type=bool, default=False, help='No additional pos embedding (already in PointBERT embedding)', required=False)
     parser.add_argument('--stopping_action', action='store', type=bool, default=False, help='Add action dimension for stoping token', required=False)
     
