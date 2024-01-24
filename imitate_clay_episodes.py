@@ -315,8 +315,8 @@ def train_bc(train_dataloader, val_dataloader, config):
     optimizer = make_optimizer(policy_class, policy)
 
     scheduler = MultiStepLR(optimizer,
-                    milestones=[500, 750, 1000, 1250, 1500, 1750],
-                    gamma=0.1)
+                    milestones=[750, 1000],
+                    gamma=0.5)
 
     train_history = []
     validation_history = []
