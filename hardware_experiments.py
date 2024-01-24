@@ -257,7 +257,7 @@ def harware_eval(config, ckpt_name, save_episode=True):
     num_rollouts = 5
     for rollout_id in range(num_rollouts):
         # create experiment folder
-        exp_name = 'exp25'
+        exp_name = 'exp26'
         os.mkdir('Experiments/' + exp_name)
 
         # save the config file
@@ -286,6 +286,7 @@ def harware_eval(config, ckpt_name, save_episode=True):
                 _, _, pc4, _ = cam4._get_next_frame()
                 _, _, pc5, _ = cam5._get_next_frame()
                 pointcloud = pcl_vis.fuse_point_clouds(pc2, pc3, pc4, pc5, vis=False)
+                # TODO: pointcloud, center = use pcl_vis.unnormalize_fuse_point_clouds() to have center to change the action scaling 
 
                 # visualize the state and target and save as png 
                 pcl_o3d = o3d.geometry.PointCloud()
@@ -341,8 +342,8 @@ def harware_eval(config, ckpt_name, save_episode=True):
                 time.sleep(3)
 
                 # open the gripper
-                fa.open_gripper()
-                time.sleep(2)
+                fa.open_gripper(block=True)
+                # time.sleep(2)
 
                 # move to observation pose
                 pose.translation = observation_pose
