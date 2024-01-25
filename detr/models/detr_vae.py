@@ -49,7 +49,7 @@ class DETRVAE(nn.Module):
         self.transformer = transformer
         self.encoder = encoder
         hidden_dim = transformer.d_model
-        self.action_head = nn.Linear(hidden_dim, 5) # state_dim)
+        self.action_head = nn.Linear(hidden_dim, 6) # 5) # state_dim)
         # print("\n\nState dim: ", state_dim)
         self.is_pad_head = nn.Linear(hidden_dim, 1)
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
@@ -67,7 +67,7 @@ class DETRVAE(nn.Module):
         # encoder extra parameters
         self.latent_dim = 32 # final size of latent z # TODO tune
         self.cls_embed = nn.Embedding(1, hidden_dim) # extra cls token embedding
-        self.encoder_action_proj = nn.Linear(5, hidden_dim) # project action to embedding
+        self.encoder_action_proj = nn.Linear(6, hidden_dim) # nn.Linear(5, hidden_dim) # project action to embedding
         self.encoder_joint_proj = nn.Linear(5, hidden_dim)  # project qpos to embedding
         self.latent_proj = nn.Linear(hidden_dim, self.latent_dim*2) # project hidden state to latent std, var
         # self.register_buffer('pos_table', get_sinusoid_encoding_table(1+1+num_queries, hidden_dim)) # [CLS], qpos, a_seq

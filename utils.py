@@ -19,7 +19,7 @@ class ClayDataset(torch.utils.data.Dataset):
         self.dataset_dir = dataset_dir
         self.episode_idxs = episode_idxs
         self.max_len = 9 # 6 # maximum number of actions for X trajectory
-        self.action_shape = (self.max_len, 5)
+        self.action_shape = (self.max_len, 6) # (self.max_len, 5)
         self.action_pred = action_pred
         # self.visualize_grasp = visualize_grasp
     
@@ -52,7 +52,8 @@ class ClayDataset(torch.utils.data.Dataset):
 
             if j != 0:
                 if self.action_pred:
-                    a = np.load(traj_path + '/action' + str(j-1) + '.npy')
+                    # a = np.load(traj_path + '/action' + str(j-1) + '.npy')
+                    a = np.load(traj_path + '/action_normalized_ctr' + str(j-1) + '.npy')
                 else:
                     # a = np.load(traj_path + '/state' + str(j) + '.npy')
                     a = np.load(traj_path + '/pointcloud' + str(j) + '.npy')

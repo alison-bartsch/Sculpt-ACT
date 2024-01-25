@@ -51,7 +51,12 @@ def main(args):
     # dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Embedded_X'
     # dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Aug24_Human_Demos/X'
     # dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/No_Aug_Dec14_Human_Demos/X'
-    dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Aug_Dec14_Human_Demos/X'
+
+
+
+
+    # dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Aug_Dec14_Human_Demos/X'
+    dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Aug_Jan24_Human_Demos_Stopping/X'
     num_episodes = 900 # 10 # 899 # 900
     episode_len = 9 # 6 # maximum episode lengths
     encoder_frozen = False
@@ -457,7 +462,7 @@ if __name__ == '__main__':
     parser.add_argument('--temporal_agg', action='store_true')
 
     # modifications 
-    parser.add_argument('--concat_goal', action='store', type=bool, default=True, help='Goal point cloud concatenation condition', required=False)
+    parser.add_argument('--concat_goal', action='store', type=bool, default=False, help='Goal point cloud concatenation condition', required=False)
     parser.add_argument('--delta_goal', action='store', type=bool, default=False, help='Goal point cloud delta with state concatentation', required=False)
     parser.add_argument('--film_goal', action='store', type=bool, default=False, help='Goal point cloud FiLM condition', required=False)
     parser.add_argument('--pointnet', action='store', type=bool, default=False, help='Alternate point cloud embedding', required=False)

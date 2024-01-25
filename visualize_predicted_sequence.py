@@ -1,24 +1,8 @@
 import torch
 import numpy as np
 import os
-import pickle
 import argparse
-import matplotlib.pyplot as plt
-from copy import deepcopy
-from tqdm import tqdm
-from einops import rearrange
 
-from constants import DT
-from constants import PUPPET_GRIPPER_JOINT_OPEN
-from utils import load_data, load_clay_data # data functions
-from utils import sample_box_pose, sample_insertion_pose # robot functions
-from utils import compute_dict_mean, set_seed, detach_dict # helper functions
-from policy import ACTPolicy, CNNMLPPolicy
-from visualize_episodes import save_videos
-
-from sim_env import BOX_POSE
-
-import robomail.vision as vis
 from robot_utils import *
 # from dynamics.dynamics_model import EncoderHead
 from embeddings.embeddings import EncoderHead, EncoderHeadFiLM

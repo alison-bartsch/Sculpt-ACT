@@ -33,6 +33,9 @@ import open3d as o3d
 from frankapy import FrankaArm
 from imitate_clay_episodes import *
 
+from emd import earth_mover_distance
+from pytorch3d.loss import chamfer_distance
+
 import IPython
 e = IPython.embed
 
@@ -165,7 +168,16 @@ def harware_eval(config, ckpt_name, save_episode=True):
     pre_trained_encoder = params_config['pre_trained_encoder']
 
     # experiment config
-    experiment_config = params_config.update(config)
+    # experiment_config = params_config.update(config) # THIS ISN'T WORKING
+
+    # add config to params_config
+    experiment_config = params_config
+    experiment_config['ckpt_dir'] = ckpt_dir
+    experiment_config['state_dim'] = state_dim
+    experiment_config['policy_class'] = policy_class
+    experiment_config['policy_config'] = policy_config
+    experiment_config['episode_len'] = max_timesteps
+    experiment_config['temporal_agg'] = temporal_agg
 
     # load policy and stats
     ckpt_path = os.path.join(ckpt_dir, ckpt_name)
@@ -279,13 +291,39 @@ def harware_eval(config, ckpt_name, save_episode=True):
             pose.translation = observation_pose
             fa.goto_pose(pose)
 
+            # TODO: loop checking for improvement
+            # get the observation and calculate cd and emd
+            # prev_cd = 0.01
+            # prev_emd = 0.1
+            # while improving:
+                # do the stuff
+                # get the next state and calculate cd and emd
+                # cd = chamfer_distance(target, cur_state)[0].cpu().detach().numpy()
+                # emd = earth_mover_distance(target, cur_state, transpose=False)
+                # if (prev_cd - curr_cd) > 0.001 or (prev_emd - curr_emd) > 0.01:
+                    # improving = False
+            
+            # TODO: loop checking for stopping token
+            # while not stopping_token:
+                # do the stuff
+                # stopping_token = bool(1 / (1 + exp(-action[-1]))
+
             for t in range(max_timesteps):
+            # while improving:
                 # get the current state (point cloud)
                 _, _, pc2, _ = cam2._get_next_frame()
                 _, _, pc3, _ = cam3._get_next_frame()
                 _, _, pc4, _ = cam4._get_next_frame()
                 _, _, pc5, _ = cam5._get_next_frame()
                 pointcloud = pcl_vis.fuse_point_clouds(pc2, pc3, pc4, pc5, vis=False)
+
+                # save the raw point clouds
+                os.mkdir('Experiments/' + exp_name + '/Raw_Pointclouds' + str(t)) 
+                o3d.io.write_point_cloud('Experiments/' + exp_name + '/Raw_Pointclouds' + str(t) + '/cam2.ply', pc2) 
+                o3d.io.write_point_cloud('Experiments/' + exp_name + '/Raw_Pointclouds' + str(t) + '/cam3.ply', pc3)
+                o3d.io.write_point_cloud('Experiments/' + exp_name + '/Raw_Pointclouds' + str(t) + '/cam4.ply', pc4)
+                o3d.io.write_point_cloud('Experiments/' + exp_name + '/Raw_Pointclouds' + str(t) + '/cam5.ply', pc5)
+
                 # TODO: pointcloud, center = use pcl_vis.unnormalize_fuse_point_clouds() to have center to change the action scaling 
 
                 # visualize the state and target and save as png 
