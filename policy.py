@@ -40,6 +40,32 @@ class ACTPolicy(nn.Module):
     #     else: # inference time
     #         a_hat, _, (_, _) = self.model(qpos, image, env_state) # no action, sample from prior
     #         return a_hat
+        
+    def _cosine_similarity(self, x, y):
+        """
+        Cosine similarity as loss to encourage dissimilarity. 
+        1 means identical, 0 means orthogonal. Calculating the 
+        similarity for tensors of shape (1, actions)
+        """
+        return F.cosine_similarity(x, y, dim=0)
+    
+    def _dissimilar_loss(self, actions):
+        """
+        Calculating the dissimilarity loss for a batch of actions.
+        This is to discourage the model from repeating action predictions.
+        """
+        loss = 0
+        for i in range(actions.shape[0]):
+            # iterate through the sequence prediction
+            for j in range(actions.shape[1] - 1):
+                loss += self._cosine_similarity(actions[i][j], actions[i][j+1])
+        return loss
+
+        # loss = 0
+        # for i in range(actions.shape[0]):
+        #     for j in range(i+1, actions.shape[0]):
+        #         loss += self._cosine_dissimilarity(actions[i], actions[j])
+        # return loss
 
     def __call__(self, goal, state, actions=None, is_pad=None, concat_goal=False, delta_goal=False, no_pos_embed=False):
         env_state = None
@@ -54,7 +80,11 @@ class ACTPolicy(nn.Module):
             l1 = (all_l1 * ~is_pad.unsqueeze(-1)).mean()
             loss_dict['l1'] = l1
             loss_dict['kl'] = total_kld[0]
-            loss_dict['loss'] = loss_dict['l1'] + loss_dict['kl'] * self.kl_weight
+            # modification to discourage repeate actions
+            dissimilarity_weight = 0.1
+            dissimilarity_loss = self._dissimilar_loss(actions)
+            # print("dis loss: ", dissimilarity_loss)
+            loss_dict['loss'] = loss_dict['l1'] + loss_dict['kl'] * self.kl_weight + dissimilarity_weight * dissimilarity_loss
             return loss_dict
         else: # inference time
             a_hat, _, (_, _) = self.model(goal, state, env_state) # no action, sample from prior

@@ -19,9 +19,25 @@ class ClayDataset(torch.utils.data.Dataset):
         self.dataset_dir = dataset_dir
         self.episode_idxs = episode_idxs
         self.max_len = 9 # 6 # maximum number of actions for X trajectory
-        self.action_shape = (self.max_len, 6) # (self.max_len, 5)
+        # self.action_shape = (self.max_len, 6)
+        self.action_shape = (self.max_len, 5)
         self.action_pred = action_pred
         # self.visualize_grasp = visualize_grasp
+
+    def _center_pcl(self, state, pcl, ctr):
+        pass
+
+    def _center_normalize_action(self, action, ctr, std):
+        pass
+
+    def _rotation_augmentation(self, state_list, action_list, goal):
+        pass
+        # TODO: implement rotation augmentation to reduce dataset storage size
+    
+        # ACTION NEEDS TO BE UNNORMALIZED AND UNCENTERED!!! THIS WILL OCCUR AFTER THE AUGMENTATION
+        # IS APPLIED!!!!
+    
+        # STATE AND GOALS NEED TO BE UNNORMALIZED 
     
     def __len__(self):
         """
@@ -52,8 +68,8 @@ class ClayDataset(torch.utils.data.Dataset):
 
             if j != 0:
                 if self.action_pred:
-                    # a = np.load(traj_path + '/action' + str(j-1) + '.npy')
-                    a = np.load(traj_path + '/action_normalized_ctr' + str(j-1) + '.npy')
+                    a = np.load(traj_path + '/action' + str(j-1) + '.npy')
+                    # a = np.load(traj_path + '/action_normalized_ctr' + str(j-1) + '.npy')
                 else:
                     # a = np.load(traj_path + '/state' + str(j) + '.npy')
                     a = np.load(traj_path + '/pointcloud' + str(j) + '.npy')
@@ -99,6 +115,7 @@ class ClayDataset(torch.utils.data.Dataset):
 
         action = actions[start_ts:]
         action = np.stack(action, axis=0)
+        # print("\naction: ", action)
         action_len = episode_len - start_ts
 
         padded_action = np.zeros(self.action_shape, dtype=np.float32)

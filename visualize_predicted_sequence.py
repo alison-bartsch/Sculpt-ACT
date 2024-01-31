@@ -31,6 +31,7 @@ def recenter_pcl(pointcloud):
 
 def visualize_grasp(state, next_state, action):
     action = unnormalize_a(action)
+    # TODO : have a flag for if the action was centered or not to have different unnormalization strategy
 
     # center action at origin of the point cloud
     pcl_center = np.array([0.6, 0.0, 0.25])
@@ -111,21 +112,26 @@ def visualize_grasp(state, next_state, action):
     o3d.visualization.draw_geometries([og_pcl, g_pcl, line_set, g1, g2, g1_bbox])
 
 
-def visualize_pred_action_sequence(pred_actions, state, goal):
-    pred_actions = pred_actions.cpu().detach().numpy()
+def visualize_pred_action_sequence(pred_actions, state, goal, ctr_path=None, gt=False):
+    if not gt:
+        pred_actions = pred_actions.cpu().numpy()
+        # print("\n\npred actions shape: ", pred_actions.shape)
     state = state.detach().numpy()
     goal = goal.detach().numpy()
 
     # iterate through the predicted actions
-    for i in range(pred_actions.shape[0]):
+    for i in range(pred_actions.shape[1]):
         # unnormalize the action
-        action = pred_actions[i][0]
-        print("action: ", action)
-        action = unnormalize_a(action)
+        action = pred_actions[0][i]
+        # print("\n\naction: ", action)
+        action = unnormalize_a(action)  
         print("unnormalized a: ", action)
 
         # center action at origin of the point cloud
-        pcl_center = np.array([0.6, 0.0, 0.25])
+        pcl_center = np.array([0.6, 0, 0.25]) # [0.6, 0.0, 0.25]
+        # pcl_center = state
+
+        # pcl_center = np.load(ctr_path)
         action[0:3] = action[0:3] - pcl_center
         action[0:3] = action[0:3]
 
@@ -249,14 +255,14 @@ def visualize_pred_action_sequence(pred_actions, state, goal):
         ctr_colors = np.tile(np.array([1, 0, 0]), (1,1))
         ctr_action.colors = o3d.utility.Vector3dVector(ctr_colors)
         o3d.visualization.draw_geometries([og_pcl, g_pcl, ctr_action, line_set, g1, g2, corners, g1_bbox])
-        o3d.visualization.draw_geometries([og_pcl, g_pcl, ctr_action, line_set, g1, g2, g1_inside_pcl, g2_inside_pcl, corners])
-        o3d.visualization.draw_geometries([g_pcl, ctr_action, line_set, g1, g2, inliers, corners])
+        # o3d.visualization.draw_geometries([og_pcl, g_pcl, ctr_action, line_set, g1, g2, g1_inside_pcl, g2_inside_pcl, corners])
+        # o3d.visualization.draw_geometries([g_pcl, ctr_action, line_set, g1, g2, inliers, corners])
 
         # TODO: iterate with the predicted cloud for the next action in sequence to get coarse prediction of final shape?
 
         # convert the normalized action to real-world frame
         # visualize the grasp given the world frame (will need to center about (0,0,0))
-    pass
+    # pass
 
 def main(args):
     set_seed(1)
@@ -269,7 +275,7 @@ def main(args):
     episode_len = 6 # maximum episode lengths
 
     # fixed parameters
-    state_dim = 5 #14
+    state_dim = 5 #14  #TODO modify if centered action 
     lr_backbone = 1e-5
     backbone = 'resnet18' 
     if policy_class == 'ACT':
@@ -294,7 +300,129 @@ def main(args):
 
     ckpt_names = [f'policy_best.ckpt']
     for ckpt_name in ckpt_names:
-        deploy_model(exp_config, ckpt_name, save_episode=True)
+        # deploy_model(exp_config, ckpt_name, save_episode=True)
+        deploy_multisequence_model(exp_config, ckpt_name, save_episode=True)
+
+
+def deploy_multisequence_model(config, ckpt_name, save_episode=True):
+    # import a starting state from the dataset
+    # pointcloud = np.load('/home/alison/Clay_Data/Raw_Data/Clay_Demo_Trajectories/X/Trajectory4/State1.npy')
+    no_ctr_path = '/home/alison/Clay_Data/Trajectory_Data/Aug_Dec14_Human_Demos/X'
+    ctr_path =  '/home/alison/Clay_Data/Trajectory_Data/Aug_Jan24_Human_Demos_Stopping/X'
+    pointcloud = np.load(no_ctr_path + '/Trajectory634/pointcloud1.npy')
+    pointcloud = recenter_pcl(pointcloud)
+
+    # flag for if the action was centered or not to have different unnormalization strategy
+    centered = False
+
+    set_seed(1000)
+    ckpt_dir = config['ckpt_dir']
+    state_dim = config['state_dim']
+    policy_class = config['policy_class']
+    policy_config = config['policy_config']
+    max_timesteps = config['episode_len']
+    temporal_agg = config['temporal_agg']
+
+    # load in the modifiers from params.json based on ckpt_dir
+    with open(ckpt_dir + '/params.json') as json_file:
+        params_config = json.load(json_file)
+
+    concat_goal = params_config['concat_goal']
+    delta_goal = params_config['delta_goal']
+    film_goal = params_config['film_goal']
+    no_pos_embed = params_config['no_pos_embed']
+    stopping_action = params_config['stopping_action']
+    pre_trained_encoder = params_config['pre_trained_encoder']
+
+    # load policy and stats
+    ckpt_path = os.path.join(ckpt_dir, ckpt_name)
+    policy = make_policy(policy_class, policy_config)
+    loading_status = policy.load_state_dict(torch.load(ckpt_path))
+    print(loading_status)
+    policy.cuda()
+    policy.eval()
+    print(f'Loaded: {ckpt_path}')
+
+    # load point-BERT
+    # TODO: refactor how to load the models
+    device = torch.device('cuda')
+    enc_checkpoint = torch.load(ckpt_dir + '/encoder_best_checkpoint', map_location=torch.device('cpu'))
+    encoder_head = enc_checkpoint['encoder_head'].to(device)
+
+    config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
+    model_config = config.model
+    pointbert = builder.model_builder(model_config)
+    weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
+    pointbert.load_model_from_ckpt(weights_path)
+    pointbert.to(device)
+
+    # config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
+    # model_config = config.model
+    # pointbert = builder.model_builder(model_config)
+    # # weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
+    # weights_path = ckpt_dir + '/best_pointbert.pth'
+    # pointbert.load_model_from_ckpt(weights_path)
+    # pointbert.to(device)
+
+    # import the goal point cloud
+    goal = np.load(no_ctr_path + '/Trajectory334/goal.npy')
+    goal = recenter_pcl(goal)
+
+    # create open3d goal object for visualization
+    goal_o3d = o3d.geometry.PointCloud()
+    goal_o3d.points = o3d.utility.Vector3dVector(goal)
+    goal_o3d_colors = np.tile(np.array([1,0,0]), (len(goal),1))
+    goal_o3d.colors = o3d.utility.Vector3dVector(goal_o3d_colors)
+
+    # get goal embedding once
+    goal = torch.from_numpy(goal).to(torch.float32)
+    goals = torch.unsqueeze(goal, 0).to(device)
+    tokenized_goals = pointbert(goals)
+    goal_embed = encoder_head(tokenized_goals)
+    goal_embed = torch.unsqueeze(goal_embed, 1) 
+
+    query_frequency = policy_config['num_queries']
+    if temporal_agg:
+        query_frequency = 1
+        num_queries = policy_config['num_queries']
+
+    max_timesteps = int(max_timesteps * 1) # may increase for real-world tasks
+    num_rollouts = 1
+    for rollout_id in range(num_rollouts):
+        ### evaluation loop
+        if temporal_agg:
+            all_time_actions = torch.zeros([max_timesteps, max_timesteps+num_queries, state_dim]).cuda()
+
+        with torch.inference_mode():
+            # for t in range(max_timesteps):
+            # pass the point cloud through Point-BERT to get the latent representation
+            state = torch.from_numpy(pointcloud).to(torch.float32)
+            states = torch.unsqueeze(state, 0).to(device)
+            tokenized_states = pointbert(states)
+            if film_goal:
+                pcl_embed = encoder_head(tokenized_states, tokenized_goals)
+            else:
+                pcl_embed = encoder_head(tokenized_states)
+            pcl_embed = torch.unsqueeze(pcl_embed, 1) 
+
+            ### query policy
+            action_data = None
+            is_pad = None
+            all_actions = policy(goal_embed, pcl_embed, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
+            print("all actions shape: ", all_actions.shape)
+            print("all actions: ", all_actions)
+            print(all_actions[0][0])
+            visualize_pred_action_sequence(all_actions, state, goal, ctr_path=no_ctr_path + '/Trajectory634/pcl_center1.npy')
+
+    # TODO: VISUALIZE THE GROUND TRUTH ACTIONS FOR THIS STATE TRAJECTORY!
+    gt_actions = []
+    n_actions = 5 # TODO: get this from the dataset
+    for i in range(1,n_actions+1):
+        action = np.load(no_ctr_path + '/Trajectory334/action' + str(i) + '.npy')
+        gt_actions.append(action)
+    gt_actions = np.expand_dims(np.array(gt_actions), axis=0)
+    print("GT ACTIONS SHAPE: ", gt_actions.shape)
+    visualize_pred_action_sequence(gt_actions, state, goal, ctr_path=no_ctr_path + '/Trajectory634/pcl_center1.npy', gt=True)
 
 
 def deploy_model(config, ckpt_name, save_episode=True):
