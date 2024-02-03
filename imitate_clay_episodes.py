@@ -54,10 +54,11 @@ def main(args):
 
 
 
-
-    dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Aug_Dec14_Human_Demos/X'
+    dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/No_Aug_Dec14_Human_Demos/X'
+    # dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Aug_Dec14_Human_Demos/X'
     # dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Aug_Jan24_Human_Demos_Stopping/X'
     num_episodes = 900 # 10 # 899 # 900
+    n_raw_trajectories = 10
     episode_len = 9 # 6 # maximum episode lengths
     encoder_frozen = False
     pre_trained_encoder = False
@@ -121,7 +122,7 @@ def main(args):
         exit()
 
     # train_dataloader, val_dataloader, stats, _ = load_data(dataset_dir, num_episodes, batch_size_train, batch_size_val)
-    train_dataloader, val_dataloader = load_clay_data(dataset_dir, num_episodes, batch_size_train, batch_size_val, action_pred)
+    train_dataloader, val_dataloader = load_clay_data(dataset_dir, num_episodes, batch_size_train, batch_size_val, action_pred, num_episodes, n_raw_trajectories)
 
     # save dataset stats
     if not os.path.isdir(ckpt_dir):
@@ -320,7 +321,7 @@ def train_bc(train_dataloader, val_dataloader, config):
     optimizer = make_optimizer(policy_class, policy)
 
     scheduler = MultiStepLR(optimizer,
-                    milestones=[750, 1000],
+                    milestones=[750, 1000, 2000, 3000, 4000],
                     gamma=0.5)
 
     train_history = []
@@ -408,6 +409,49 @@ def train_bc(train_dataloader, val_dataloader, config):
             # torch.save(policy.state_dict(), ckpt_path)
             plot_history(train_history, validation_history, epoch, ckpt_dir, seed)
 
+            # print an action sequence prediction to ensure model isn't repeating actions in sequence
+            with torch.inference_mode():
+                encoder_head.eval()
+                pointcloud_embed.eval()
+                policy.eval()
+                action_data = None
+                is_pad = None
+
+                # do this for 3 trajectories
+                trajs = [3,6,9]
+                for t in trajs:
+                    # get goal
+                    goal = np.load('/home/alison/Clay_Data/Trajectory_Data/No_Aug_Dec14_Human_Demos/X/Trajectory' + str(t) + '/goal.npy') # TODO: pre-define goal to load
+                    # center and scale goal to fix save bug of unprocessed goal
+                    goal = (goal - np.mean(goal, axis=0)) * 10.0
+                    goal = torch.from_numpy(goal).to(torch.float32)
+                    goals = torch.unsqueeze(goal, 0).to(device)
+                    tokenized_goals = pointcloud_embed(goals)
+                    goal_embed = encoder_head(tokenized_goals)
+                    goal_embed = torch.unsqueeze(goal_embed, 1) 
+
+                    # get state
+                    state = np.load('/home/alison/Clay_Data/Trajectory_Data/No_Aug_Dec14_Human_Demos/X/Trajectory' + str(t) + '/state0.npy')
+                    state = torch.from_numpy(state).to(torch.float32)
+                    states = torch.unsqueeze(state, 0).to(device)
+                    tokenized_states = pointcloud_embed(states)
+                    pcl_embed = encoder_head(tokenized_states)
+                    pcl_embed = torch.unsqueeze(pcl_embed, 1) 
+
+                    all_actions = policy(goal_embed, pcl_embed, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
+                    print("\n\nAction Sequence Prediction: ", all_actions)
+
+                    # get the ground truth 5 next actions
+                    gt_actions = []
+                    for i in range(5):
+                        action = np.load('/home/alison/Clay_Data/Trajectory_Data/No_Aug_Dec14_Human_Demos/X/Trajectory' + str(t) + '/unnormalized_action' + str(i) + '.npy')
+                        # normalize the action
+                        a_mins5d = np.array([0.55, -0.035, 0.19, -90, 0.005])
+                        a_maxs5d = np.array([0.63, 0.035, 0.25, 90, 0.05])
+                        norm_action = (action - a_mins5d) / (a_maxs5d - a_mins5d)
+                        gt_actions.append(norm_action)
+                    print("Ground Truth Actions: ", gt_actions)
+
     # ckpt_path = os.path.join(ckpt_dir, f'policy_last.ckpt')
     # torch.save(policy.state_dict(), ckpt_path)
 
@@ -462,8 +506,8 @@ if __name__ == '__main__':
     parser.add_argument('--temporal_agg', action='store_true')
 
     # modifications 
-    parser.add_argument('--concat_goal', action='store', type=bool, default=True, help='Goal point cloud concatenation condition', required=False)
-    parser.add_argument('--delta_goal', action='store', type=bool, default=False, help='Goal point cloud delta with state concatentation', required=False)
+    parser.add_argument('--concat_goal', action='store', type=bool, default=False, help='Goal point cloud concatenation condition', required=False)
+    parser.add_argument('--delta_goal', action='store', type=bool, default=True, help='Goal point cloud delta with state concatentation', required=False)
     parser.add_argument('--film_goal', action='store', type=bool, default=False, help='Goal point cloud FiLM condition', required=False)
     parser.add_argument('--pointnet', action='store', type=bool, default=False, help='Alternate point cloud embedding', required=False)
     parser.add_argument('--no_pos_embed', action='store', type=bool, default=False, help='No additional pos embedding (already in PointBERT embedding)', required=False)

@@ -183,9 +183,10 @@ class DETRVAE(nn.Module):
 
         if self.backbones is not None:
             if concat_goal:
-                src = torch.cat([state, goal], axis=1)
+                src = torch.cat([state, goal], axis=1) # TODO: TRY AXIS=3 like what they do with images!
+                    # axis=3 doesn't outright work --> need to look into ACT shape stuff
             elif delta_goal:
-                src = torch.cat([state, goal, state-goal], axis=1)
+                src = torch.cat([state, goal, state-goal], axis=1) # originally axis=1
             else:
                 src = state
 
@@ -193,6 +194,8 @@ class DETRVAE(nn.Module):
                 pos = torch.from_numpy(np.zeros(src.shape)).cuda()
             else:
                 pos = torch.from_numpy(np.ones(src.shape)).cuda()
+
+                # NOTE: COULD DO self.pos.weight INSTEAD OF np.ones(src.shape)
 
             # # src = torch.cat([state, goal, state-goal], axis=1)
             # if goal_pos is not None and state_pos is not None:

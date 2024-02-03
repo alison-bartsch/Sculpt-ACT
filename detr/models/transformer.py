@@ -70,6 +70,16 @@ class Transformer(nn.Module):
             pos_embed = pos_embed.permute(1,0,2).float()
             query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)
 
+            # NOTE: ADDITION
+            additional_pos_embed = additional_pos_embed.unsqueeze(1).repeat(1, bs, 1) # seq, bs, dim
+            pos_embed = torch.cat([additional_pos_embed, pos_embed], axis=0)
+
+            # addition_input = torch.stack([latent_input, proprio_input], axis=0)
+            addition_input = latent_input.unsqueeze(0).repeat(2, 1, 1)
+            # print("latent input shape: ", addition_input.shape)
+            # print("src shape: ", src.shape)
+            src = torch.cat([addition_input, src], axis=0)
+
         tgt = torch.zeros_like(query_embed)
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)
         hs = self.decoder(tgt, memory, memory_key_padding_mask=mask,
