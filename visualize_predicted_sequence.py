@@ -308,7 +308,7 @@ def deploy_multisequence_model(config, ckpt_name, save_episode=True):
     # import a starting state from the dataset
     # pointcloud = np.load('/home/alison/Clay_Data/Raw_Data/Clay_Demo_Trajectories/X/Trajectory4/State1.npy')
     no_ctr_path = '/home/alison/Clay_Data/Trajectory_Data/Aug_Dec14_Human_Demos/X'
-    ctr_path =  '/home/alison/Clay_Data/Trajectory_Data/Aug_Jan24_Human_Demos_Stopping/X'
+    # ctr_path =  '/home/alison/Clay_Data/Trajectory_Data/Aug_Jan24_Human_Demos_Stopping/X'
     pointcloud = np.load(no_ctr_path + '/Trajectory634/pointcloud1.npy')
     pointcloud = recenter_pcl(pointcloud)
 
@@ -349,20 +349,20 @@ def deploy_multisequence_model(config, ckpt_name, save_episode=True):
     enc_checkpoint = torch.load(ckpt_dir + '/encoder_best_checkpoint', map_location=torch.device('cpu'))
     encoder_head = enc_checkpoint['encoder_head'].to(device)
 
-    config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
-    model_config = config.model
-    pointbert = builder.model_builder(model_config)
-    weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
-    pointbert.load_model_from_ckpt(weights_path)
-    pointbert.to(device)
-
     # config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
     # model_config = config.model
     # pointbert = builder.model_builder(model_config)
-    # # weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
-    # weights_path = ckpt_dir + '/best_pointbert.pth'
+    # weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
     # pointbert.load_model_from_ckpt(weights_path)
     # pointbert.to(device)
+
+    config = cfg_from_yaml_file('pointBERT/cfgs/PointTransformer.yaml')
+    model_config = config.model
+    pointbert = builder.model_builder(model_config)
+    # weights_path = 'pointBERT/point-BERT-weights/Point-BERT.pth'
+    weights_path = ckpt_dir + '/best_pointbert.pth'
+    pointbert.load_model_from_ckpt(weights_path)
+    pointbert.to(device)
 
     # import the goal point cloud
     goal = np.load(no_ctr_path + '/Trajectory334/goal.npy')
@@ -415,6 +415,7 @@ def deploy_multisequence_model(config, ckpt_name, save_episode=True):
             visualize_pred_action_sequence(all_actions, state, goal, ctr_path=no_ctr_path + '/Trajectory634/pcl_center1.npy')
 
     # TODO: VISUALIZE THE GROUND TRUTH ACTIONS FOR THIS STATE TRAJECTORY!
+    print("\n\n\nVisualize the ground truth actions for this state trajectory!\n\n\n")
     gt_actions = []
     n_actions = 5 # TODO: get this from the dataset
     for i in range(1,n_actions+1):

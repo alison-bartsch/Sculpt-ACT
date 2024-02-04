@@ -439,18 +439,33 @@ def train_bc(train_dataloader, val_dataloader, config):
                     pcl_embed = torch.unsqueeze(pcl_embed, 1) 
 
                     all_actions = policy(goal_embed, pcl_embed, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
-                    print("\n\nAction Sequence Prediction: ", all_actions)
+                    
+                    # NOTE: want to replicate test time here where action is not an input!!!
+                    # all_actions = policy(goal_embed, pcl_embed, None, None, concat_goal, delta_goal, no_pos_embed)
+                    
+                    # unnormalize predicted actions
+                    all_actions = all_actions.cpu().detach().numpy()
+                    unnorm_actions = []
+                    for i in range(all_actions.shape[1]):
+                        a = all_actions[0,i]
+                        a_mins5d = np.array([0.55, -0.035, 0.19, -90, 0.005])
+                        a_maxs5d = np.array([0.63, 0.035, 0.25, 90, 0.05])
+                        unnorm_a = a * (a_maxs5d - a_mins5d) + a_mins5d
+                        unnorm_actions.append(unnorm_a)
+                    
+                    print("\n\nAction Sequence Prediction: ", np.array(unnorm_actions))
 
                     # get the ground truth 5 next actions
                     gt_actions = []
                     for i in range(5):
                         action = np.load('/home/alison/Clay_Data/Trajectory_Data/No_Aug_Dec14_Human_Demos/X/Trajectory' + str(t) + '/unnormalized_action' + str(i) + '.npy')
-                        # normalize the action
-                        a_mins5d = np.array([0.55, -0.035, 0.19, -90, 0.005])
-                        a_maxs5d = np.array([0.63, 0.035, 0.25, 90, 0.05])
-                        norm_action = (action - a_mins5d) / (a_maxs5d - a_mins5d)
-                        gt_actions.append(norm_action)
-                    print("Ground Truth Actions: ", gt_actions)
+                        # # normalize the action
+                        # a_mins5d = np.array([0.55, -0.035, 0.19, -90, 0.005])
+                        # a_maxs5d = np.array([0.63, 0.035, 0.25, 90, 0.05])
+                        # norm_action = (action - a_mins5d) / (a_maxs5d - a_mins5d)
+                        # gt_actions.append(norm_action)
+                        gt_actions.append(action)
+                    print("\nGround Truth Actions: ", np.array(gt_actions))
 
     # ckpt_path = os.path.join(ckpt_dir, f'policy_last.ckpt')
     # torch.save(policy.state_dict(), ckpt_path)
