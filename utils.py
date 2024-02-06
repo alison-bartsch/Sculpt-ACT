@@ -64,6 +64,7 @@ class ClayDataset(torch.utils.data.Dataset):
         a_mins5d = np.array([0.55, -0.035, 0.19, -90, 0.005])
         a_maxs5d = np.array([0.63, 0.035, 0.25, 90, 0.05])
         norm_action = (action - a_mins5d) / (a_maxs5d - a_mins5d)
+        norm_action = norm_action * 2 - 1 # set to [-1, 1]
         return norm_action
 
     def _rotate_pcl(self, state, center, rot):
@@ -115,11 +116,16 @@ class ClayDataset(torch.utils.data.Dataset):
         states = []
         actions = []
         j = 0
+
+        # TODO: check for starting from state = 3
+
         # iterate loading in the actions as long as the next state point cloud exists
+        # while exists(traj_path + '/state' + str(j) + '.npy'): # TODO: FOR JAN DATASET
         while exists(traj_path + '/unnormalized_state' + str(j) + '.npy'):
             # load the center
             ctr = np.load(traj_path + '/pcl_center' + str(j) + '.npy')
             # load the uncentered state
+            # s = np.load(traj_path + '/state' + str(j) + '.npy') # TODO: FOR JAN DATASET
             s = np.load(traj_path + '/unnormalized_state' + str(j) + '.npy')
             # apply state rotation
             s_rot = self._rotate_pcl(s, ctr, aug_rot)
@@ -130,6 +136,7 @@ class ClayDataset(torch.utils.data.Dataset):
 
             if j != 0:
                 # load unnormalized action
+                # a = np.load(traj_path + '/action' + str(j-1) + '.npy') # TODO: FOR JAN DATASET
                 a = np.load(traj_path + '/unnormalized_action' + str(j-1) + '.npy')
                 # apply action rotation
                 a_rot = self._rotate_action(a, ctr, aug_rot)
@@ -164,6 +171,12 @@ class ClayDataset(torch.utils.data.Dataset):
         action = actions[start_ts:]
         action = np.stack(action, axis=0)
 
+        # get obs_pos as previous action
+        if start_ts != 0:
+            obs_pos = actions[start_ts-1]
+        else:
+            obs_pos = self._normalize_action(np.array([0.6, 0.0, 0.25, 0.0, 0.05]))
+
         action_len = episode_len - start_ts
 
         padded_action = np.zeros(self.action_shape, dtype=np.float32)
@@ -177,8 +190,9 @@ class ClayDataset(torch.utils.data.Dataset):
         goal_data = torch.from_numpy(goal).float()
         action_data = torch.from_numpy(padded_action).float()
         is_pad = torch.from_numpy(is_pad).bool()
+        obs_pos = torch.from_numpy(obs_pos).float()
 
-        return goal_data, state_data, action_data, is_pad
+        return goal_data, state_data, obs_pos, action_data, is_pad
 
 
 # class ClayDataset(torch.utils.data.Dataset):

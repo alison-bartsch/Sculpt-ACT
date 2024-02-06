@@ -18,7 +18,7 @@ from visualize_episodes import save_videos
 
 from sim_env import BOX_POSE
 
-import robomail.vision as vis
+# import robomail.vision as vis
 from robot_utils import *
 # from dynamics.dynamics_model import EncoderHead
 from embeddings.embeddings import EncoderHead, EncoderHeadFiLM, EncoderHeadFiLMPretrained
@@ -57,7 +57,7 @@ def main(args):
     dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/No_Aug_Dec14_Human_Demos/X'
     # dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Aug_Dec14_Human_Demos/X'
     # dataset_dir = '/home/alison/Clay_Data/Trajectory_Data/Aug_Jan24_Human_Demos_Stopping/X'
-    num_episodes = 900 # 10 # 899 # 900
+    num_episodes = 10 # 900 # 10 # 899 # 900
     n_raw_trajectories = 10
     episode_len = 9 # 6 # maximum episode lengths
     encoder_frozen = False
@@ -202,8 +202,8 @@ def forward_pass(data, policy, pointcloud_embed, encoder_head, concat_goal, delt
     """
     Version of forward pass with goal conditioning.
     """
-    goal_data, state_data, action_data, is_pad = data
-    goal_data, state_data, action_data, is_pad = goal_data.cuda(), state_data.cuda(), action_data.cuda(), is_pad.cuda()
+    goal_data, state_data, pos_data, action_data, is_pad = data
+    goal_data, state_data, pos_data, action_data, is_pad = goal_data.cuda(), state_data.cuda(), pos_data.cuda(), action_data.cuda(), is_pad.cuda()
 
     if film_goal:
         state_data = state_data.to(torch.float32)
@@ -215,7 +215,7 @@ def forward_pass(data, policy, pointcloud_embed, encoder_head, concat_goal, delt
         pcl_embed = torch.unsqueeze(pcl_embed, 1)
         goal_embed = encoder_head(tokenized_goals)
         goal_embed = torch.unsqueeze(goal_embed, 1)
-        return policy(goal_embed, pcl_embed, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
+        return policy(goal_embed, pcl_embed, pos_data, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
 
     else:
         state_data = state_data.to(torch.float32)
@@ -227,7 +227,7 @@ def forward_pass(data, policy, pointcloud_embed, encoder_head, concat_goal, delt
         tokenized_goals = pointcloud_embed(goal_data)
         goal_embed = encoder_head(tokenized_goals)
         goal_embed = torch.unsqueeze(goal_embed, 1)
-        return policy(goal_embed, pcl_embed, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)    
+        return policy(goal_embed, pcl_embed, pos_data, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)    
     
 
 
@@ -419,7 +419,11 @@ def train_bc(train_dataloader, val_dataloader, config):
 
                 # do this for 3 trajectories
                 trajs = [3,6,9]
-                for t in trajs:
+                start_state = [0,3,4]
+                # for t in trajs:
+                for k in range(len(trajs)):
+                    t = trajs[k]
+                    s_idx = start_state[k]
                     # get goal
                     goal = np.load('/home/alison/Clay_Data/Trajectory_Data/No_Aug_Dec14_Human_Demos/X/Trajectory' + str(t) + '/goal.npy') # TODO: pre-define goal to load
                     # center and scale goal to fix save bug of unprocessed goal
@@ -431,14 +435,26 @@ def train_bc(train_dataloader, val_dataloader, config):
                     goal_embed = torch.unsqueeze(goal_embed, 1) 
 
                     # get state
-                    state = np.load('/home/alison/Clay_Data/Trajectory_Data/No_Aug_Dec14_Human_Demos/X/Trajectory' + str(t) + '/state0.npy')
+                    state = np.load('/home/alison/Clay_Data/Trajectory_Data/No_Aug_Dec14_Human_Demos/X/Trajectory' + str(t) + '/state' + str(s_idx) + '.npy') #'/state0.npy')
                     state = torch.from_numpy(state).to(torch.float32)
                     states = torch.unsqueeze(state, 0).to(device)
                     tokenized_states = pointcloud_embed(states)
                     pcl_embed = encoder_head(tokenized_states)
                     pcl_embed = torch.unsqueeze(pcl_embed, 1) 
 
-                    all_actions = policy(goal_embed, pcl_embed, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
+                    # get the previous action
+                    if s_idx == 0:
+                        pos = np.array([0.6, 0.0, 0.25, 0.0, 0.05])
+                    else:
+                        pos = np.load('/home/alison/Clay_Data/Trajectory_Data/No_Aug_Dec14_Human_Demos/X/Trajectory' + str(t) + '/unnormalized_action' + str(s_idx-1) + '.npy')
+                    a_mins5d = np.array([0.55, -0.035, 0.19, -90, 0.005])
+                    a_maxs5d = np.array([0.63, 0.035, 0.25, 90, 0.05])
+                    pos = (pos - a_mins5d) / (a_maxs5d - a_mins5d)
+                    pos = pos * 2.0 - 1.0
+                    pos = torch.from_numpy(pos).to(torch.float32)
+                    pos = torch.unsqueeze(pos, 0).to(device)
+
+                    all_actions = policy(goal_embed, pcl_embed, pos, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
                     
                     # NOTE: want to replicate test time here where action is not an input!!!
                     # all_actions = policy(goal_embed, pcl_embed, None, None, concat_goal, delta_goal, no_pos_embed)
@@ -448,9 +464,8 @@ def train_bc(train_dataloader, val_dataloader, config):
                     unnorm_actions = []
                     for i in range(all_actions.shape[1]):
                         a = all_actions[0,i]
-                        a_mins5d = np.array([0.55, -0.035, 0.19, -90, 0.005])
-                        a_maxs5d = np.array([0.63, 0.035, 0.25, 90, 0.05])
-                        unnorm_a = a * (a_maxs5d - a_mins5d) + a_mins5d
+                        unnorm_a = (a + 1)/2.0
+                        unnorm_a = unnorm_a * (a_maxs5d - a_mins5d) + a_mins5d
                         unnorm_actions.append(unnorm_a)
                     
                     print("\n\nAction Sequence Prediction: ", np.array(unnorm_actions))

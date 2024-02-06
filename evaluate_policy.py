@@ -201,6 +201,7 @@ def main(args):
                     
                     # visualize the predicted action
                     pred_a = all_actions[0][i].cpu().detach().numpy()
+                    pred_a = (pred_a + 1)/2.0
                     a_mins5d = np.array([0.55, -0.035, 0.19, -90, 0.005])
                     a_maxs5d = np.array([0.63, 0.035, 0.25, 90, 0.05])
                     unnorm_pred_a = pred_a * (a_maxs5d - a_mins5d) + a_mins5d

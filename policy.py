@@ -61,7 +61,7 @@ class ACTPolicy(nn.Module):
                 loss += self._cosine_similarity(actions[i][j], actions[i][j+1])
         return loss
 
-    def __call__(self, goal, state, actions=None, is_pad=None, concat_goal=False, delta_goal=False, no_pos_embed=False):
+    def __call__(self, goal, state, pos=None, actions=None, is_pad=None, concat_goal=False, delta_goal=False, no_pos_embed=False):
         env_state = None
 
         if actions is not None: # training time
@@ -69,7 +69,7 @@ class ACTPolicy(nn.Module):
             # print("\nSanity Check actions: ", actions)
             # print("actions shape: ", actions.shape)
             is_pad = is_pad[:, :self.model.num_queries]
-            a_hat, is_pad_hat, (mu, logvar) = self.model(goal, state, env_state, actions, is_pad, concat_goal, delta_goal, no_pos_embed)
+            a_hat, is_pad_hat, (mu, logvar) = self.model(pos, goal, state, env_state, actions, is_pad, concat_goal, delta_goal, no_pos_embed)
             total_kld, dim_wise_kld, mean_kld = kl_divergence(mu, logvar)
             loss_dict = dict()
             all_l1 = F.l1_loss(actions, a_hat, reduction='none')
@@ -83,7 +83,7 @@ class ACTPolicy(nn.Module):
             loss_dict['loss'] = loss_dict['l1'] + loss_dict['kl'] * self.kl_weight # + dissimilarity_weight * dissimilarity_loss
             return loss_dict
         else: # inference time
-            a_hat, _, (_, _) = self.model(goal, state, env_state) # no action, sample from prior
+            a_hat, _, (_, _) = self.model(pos, goal, state, env_state) # no action, sample from prior
             return a_hat
 
     def __call_prev__(self, qpos, state, actions=None, is_pad=None):

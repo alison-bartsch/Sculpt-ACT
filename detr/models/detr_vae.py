@@ -149,7 +149,7 @@ class DETRVAE(nn.Module):
     #     return a_hat, is_pad_hat, [mu, logvar]
     
 
-    def forward(self, goal, state, env_state, actions=None, is_pad=None, concat_goal=False, delta_goal=False, no_pos_embed=False):
+    def forward(self, qpos, goal, state, env_state, actions=None, is_pad=None, concat_goal=False, delta_goal=False, no_pos_embed=False):
         """
         """
         is_training = actions is not None # train or val
@@ -189,7 +189,7 @@ class DETRVAE(nn.Module):
                 src = torch.cat([state, goal, state-goal], axis=1) # originally axis=1
             else:
                 src = state
-
+            proprio_input = self.input_proj_robot_state(qpos) 
             if no_pos_embed:
                 pos = torch.from_numpy(np.zeros(src.shape)).cuda()
             else:
@@ -204,8 +204,10 @@ class DETRVAE(nn.Module):
             #     # pos = torch.from_numpy(np.ones(src.shape)).cuda()
             #     # pos = None
             #     pos = torch.from_numpy(np.zeros(src.shape)).cuda()
-            hs = self.transformer(src, None, self.query_embed.weight, pos, latent_input, None, self.additional_pos_embed.weight)[0]
+            hs = self.transformer(src, None, self.query_embed.weight, pos, latent_input, proprio_input, self.additional_pos_embed.weight)[0]
         else:
+            print("\n\n\n\nSHOULDN'T HAVE GONE HERE!!!\n\n\n\n")
+            proprio_input = self.input_proj_robot_state(qpos)
             env_state = self.input_proj_env_state(env_state)
             transformer_input = torch.cat([env_state], axis=1) # seq length = 2
             hs = self.transformer(transformer_input, None, self.query_embed.weight, self.pos.weight)[0]
