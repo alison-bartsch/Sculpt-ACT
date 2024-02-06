@@ -160,6 +160,8 @@ class ClayDataset(torch.utils.data.Dataset):
         episode_len = len(actions)
         start_ts = np.random.choice(episode_len)
         state = states[start_ts]
+
+        # TODO: MOVE ROTATION AUGMENTATION OF STATE AND GOAL OUTSIDE OF LOOP!!!!!!
         
         # load uncentered goal
         g = np.load(traj_path + '/goal.npy')

@@ -73,7 +73,7 @@ def main(args):
     # trajs = [1, 4, 8, 9]
     trajs = [3,6,9]
     # starting_states = [0, 1, 3]
-    starting_states = [0]
+    starting_states = [0,1,3,5]
     dataset_path = '/home/alison/Clay_Data/Trajectory_Data/No_Aug_Dec14_Human_Demos/X'
 
     ckpt_names = [f'policy_best.ckpt']
@@ -151,6 +151,18 @@ def main(args):
                 ctr = np.load(path + '/pcl_center' + str(s) + '.npy')
                 state_unctr = state * 0.1 + ctr
 
+                # get past action and normalize
+                if s == 0:
+                    qpos = np.array([0.6, 0.0, 0.25, 0.0, 0.05])
+                else:
+                    qpos = np.load(path + '/unnormalized_action' + str(s-1) + '.npy')
+                a_mins5d = np.array([0.55, -0.035, 0.19, -90, 0.005])
+                a_maxs5d = np.array([0.63, 0.035, 0.25, 90, 0.05])
+                qpos = (qpos - a_mins5d) / (a_maxs5d - a_mins5d)
+                qpos = qpos * 2.0 - 1.0
+                qpos = torch.from_numpy(qpos).to(torch.float32)
+                qpos = torch.unsqueeze(qpos, 0).to(device)
+
                 # recreate actual test-time inference
                 with torch.inference_mode():
                     # pass the point cloud through Point-BERT to get the latent representation
@@ -163,7 +175,8 @@ def main(args):
                     ### query policy
                     action_data = None
                     is_pad = None
-                    all_actions = policy(goal_embed, pcl_embed, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
+                    all_actions = policy(goal_embed, pcl_embed, qpos, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
+                    # all_actions = policy(goal_embed, pcl_embed, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
                     # print("all actions shape: ", all_actions.shape)
                     # print("all actions: ", all_actions)
                     print(all_actions[0][0])
