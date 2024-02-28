@@ -109,7 +109,7 @@ def experiment_loop(fa, cam2, cam3, cam4, cam5, pcl_vis, save_path, goal_str, ck
     qpos = np.array([0.6, 0.0, 0.165, 0.0, 0.05])
     qpos = (qpos - a_mins5d) / (a_maxs5d - a_mins5d)
     qpos = qpos * 2.0 - 1.0
-    nagent_pos = torch.from_numpy(qpos).to(torch.float32).unsqueeze(axis=0).unsqueeze(axis=0).to(device)
+    # nagent_pos = torch.from_numpy(qpos).to(torch.float32).unsqueeze(axis=0).unsqueeze(axis=0).to(device)
 
     # load in the goal
     raw_goal = np.load('/home/alison/Documents/GitHub/diffusion_policy_3d/goals/' + goal_str + '.npy')
@@ -198,121 +198,134 @@ def experiment_loop(fa, cam2, cam3, cam4, cam5, pcl_vis, save_path, goal_str, ck
             goal_embed = projection_head(tokenized_goals)
             goal_embed = torch.unsqueeze(goal_embed, 1) 
 
+            # get pos_data
+            if t == 0:
+                pos_data = qpos
+            else: 
+                pos_data = prev_action
+            pos_data = torch.from_numpy(pos_data).float().to(device)
+            pos_data = torch.unsqueeze(pos_data, 0)
 
             ### query policy
             if t % query_frequency == 0:
                 action_data = None
                 is_pad = None
-                all_actions = policy(goal_embed, pcl_embed, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
-            if temporal_agg:
-                print("all time action shape: ", all_time_actions.shape)
-                all_time_actions[[t], t:t+num_queries] = all_actions
-                actions_for_curr_step = all_time_actions[:, t]
-                actions_populated = torch.all(actions_for_curr_step != 0, axis=1)
-                actions_for_curr_step = actions_for_curr_step[actions_populated]
-                k = 0.01
-                exp_weights = np.exp(-k * np.arange(len(actions_for_curr_step)))
-                exp_weights = exp_weights / exp_weights.sum()
-                exp_weights = torch.from_numpy(exp_weights).cuda().unsqueeze(dim=1)
-                raw_action = (actions_for_curr_step * exp_weights).sum(dim=0, keepdim=True)
-            else:
-                print("raw action...")
-                raw_action = all_actions[:, t % query_frequency] 
+                # all_actions = policy(goal_embed, pcl_embed, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
+                all_actions = policy(goal_embed, pcl_embed, pos_data, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
+                all_actions = all_actions.squeeze(0).cpu().numpy()
+                print("\n\nAll Actions: ", all_actions)
 
-        # unnormalize action
-        pred_action = raw_action.squeeze(0).cpu().numpy()
-        end = time.time()
-        planning_time_list.append(end-start)
+                # unnormalize all actions
+                unnorm_as = (all_actions.squeeze(0).cpu().numpy() + 1.0) / 2.0
+                unnorm_as = unnorm_as * (a_maxs5d - a_mins5d) + a_mins5d
+                print("Unnormalized actions: ", unnorm_as)
 
-        # execute 4 actions before replanning
-        # pred_action = naction[0]
-        print("\nNormalized Predicted Action Sequence: ", pred_action)
-        action_pred = (pred_action + 1.0) / 2.0
-        action_pred = action_pred * (a_maxs5d - a_mins5d) + a_mins5d
-        
-        print("\nUnnormalized Predicted Action Sequence: ", action_pred)
-        
-        # for j in range(action_pred.shape[0]):
-        # unnorm_a = action_pred[j,:]
-        unnorm_a = action_pred 
+            # if temporal_agg:
+            #     print("all time action shape: ", all_time_actions.shape)
+            #     all_time_actions[[t], t:t+num_queries] = all_actions
+            #     actions_for_curr_step = all_time_actions[:, t]
+            #     actions_populated = torch.all(actions_for_curr_step != 0, axis=1)
+            #     actions_for_curr_step = actions_for_curr_step[actions_populated]
+            #     k = 0.01
+            #     exp_weights = np.exp(-k * np.arange(len(actions_for_curr_step)))
+            #     exp_weights = exp_weights / exp_weights.sum()
+            #     exp_weights = torch.from_numpy(exp_weights).cuda().unsqueeze(dim=1)
+            #     raw_action = (actions_for_curr_step * exp_weights).sum(dim=0, keepdim=True)
+            # else:
+            #     print("raw action...")
+            #     raw_action = all_actions[:, t % query_frequency] 
+                
+        for j in range(len(all_actions)):
+                
 
-        if centered_action:
-            print("uncentering action...")
-            unnorm_a[0:3] = unnorm_a[0:3] + ctr
+            # unnormalize action
+            # pred_action = raw_action.squeeze(0).cpu().numpy()
+            pred_action = unnorm_as[j,:]
+            prev_action = pred_action.copy()
+            end = time.time()
+            planning_time_list.append(end-start)
 
-        print("\nAction: ", unnorm_a)
+            # execute 4 actions before replanning
+            # pred_action = naction[0]
+            # print("\nNormalized Predicted Action Sequence: ", pred_action)
+            # action_pred = (pred_action + 1.0) / 2.0
+            # action_pred = action_pred * (a_maxs5d - a_mins5d) + a_mins5d
+            action_pred = pred_action
+            
+            print("\nUnnormalized Predicted Action Sequence: ", action_pred)
+            
+            # for j in range(action_pred.shape[0]):
+            # unnorm_a = action_pred[j,:]
+            unnorm_a = action_pred 
 
-        goto_grasp(fa, unnorm_a[0], unnorm_a[1], unnorm_a[2], 0, 0, unnorm_a[3], unnorm_a[4])
-        n_action+=1
+            if centered_action:
+                print("uncentering action...")
+                unnorm_a[0:3] = unnorm_a[0:3] + ctr
 
-        # wait here
-        time.sleep(3)
+            print("\nAction: ", unnorm_a)
 
-        # open the gripper
-        fa.open_gripper(block=True)
+            goto_grasp(fa, unnorm_a[0], unnorm_a[1], unnorm_a[2], 0, 0, unnorm_a[3], unnorm_a[4])
+            n_action+=1
 
-        # move to observation pose
-        pose.translation = observation_pose
-        fa.goto_pose(pose)
+            # wait here
+            time.sleep(3)
 
-        # get the observation state
-        rgb2, _, pc2, _ = cam2._get_next_frame()
-        rgb3, _, pc3, _ = cam3._get_next_frame()
-        rgb4, _, pc4, _ = cam4._get_next_frame()
-        rgb5, _, pc5, _ = cam5._get_next_frame()
+            # open the gripper
+            fa.open_gripper(block=True)
 
-        # after planning should modify the center that we are using to uncenter the action!
-        pcl, ctr = pcl_vis.unnormalize_fuse_point_clouds(pc2, pc3, pc4, pc5)
-        # center and scale pointcloud
-        pointcloud = (pcl - ctr) * 10
+            # move to observation pose
+            pose.translation = observation_pose
+            fa.goto_pose(pose)
 
-        # save the point clouds from each camera
-        o3d.io.write_point_cloud(save_path + '/cam2_pcl' + str(t + 1) + '.ply', pc2)
-        o3d.io.write_point_cloud(save_path + '/cam3_pcl' + str(t + 1) + '.ply', pc3)
-        o3d.io.write_point_cloud(save_path + '/cam4_pcl' + str(t + 1) + '.ply', pc4)
-        o3d.io.write_point_cloud(save_path + '/cam5_pcl' + str(t + 1) + '.ply', pc5)
+            # get the observation state
+            rgb2, _, pc2, _ = cam2._get_next_frame()
+            rgb3, _, pc3, _ = cam3._get_next_frame()
+            rgb4, _, pc4, _ = cam4._get_next_frame()
+            rgb5, _, pc5, _ = cam5._get_next_frame()
 
-        # center the goal based on this new point cloud center
-        numpy_goal = (raw_goal - ctr) * 10.0
-        # scale distance metric goal differently 
-        # dist_goal = (raw_goal - np.mean(raw_goal, axis=0)) * 10.0
-        dist_goal = numpy_goal.copy()
+            # after planning should modify the center that we are using to uncenter the action!
+            pcl, ctr = pcl_vis.unnormalize_fuse_point_clouds(pc2, pc3, pc4, pc5)
+            # center and scale pointcloud
+            pointcloud = (pcl - ctr) * 10
 
-        # visualize observation vs goal cloud
-        pcl = o3d.geometry.PointCloud()
-        pcl.points = o3d.utility.Vector3dVector(pointcloud)
-        pcl.colors = o3d.utility.Vector3dVector(np.tile(np.array([0,0,1]), (len(pointcloud),1)))
-        goal_pcl = o3d.geometry.PointCloud()
-        goal_pcl.points = o3d.utility.Vector3dVector(dist_goal)
-        goal_pcl.colors = o3d.utility.Vector3dVector(np.tile(np.array([1,0,0]), (len(dist_goal),1)))
-        o3d.visualization.draw_geometries([pcl, goal_pcl])
+            # save the point clouds from each camera
+            o3d.io.write_point_cloud(save_path + '/cam2_pcl' + str(t*5 + j + 1) + '.ply', pc2)
+            o3d.io.write_point_cloud(save_path + '/cam3_pcl' + str(t*5 + j + 1) + '.ply', pc3)
+            o3d.io.write_point_cloud(save_path + '/cam4_pcl' + str(t*5 + j + 1) + '.ply', pc4)
+            o3d.io.write_point_cloud(save_path + '/cam5_pcl' + str(t*5 + j + 1) + '.ply', pc5)
 
-        # save observation
-        np.save(save_path + '/pcl' + str(t + 1) + '.npy', pointcloud)
-        np.save(save_path + '/center' + str(t + 1) + '.npy', ctr)
-        cv2.imwrite(save_path + '/rgb2_state' + str(t + 1) + '.jpg', rgb2)
-        cv2.imwrite(save_path + '/rgb3_state' + str(t + 1) + '.jpg', rgb3)
-        cv2.imwrite(save_path + '/rgb4_state' + str(t + 1)/home/alison/Documents/GitHub/Sculpt-ACT/checkpoints/Line_morefewerdemos + '.jpg', rgb4)
-        cv2.imwrite(save_path + '/rgb5_state' + str(t + 1) + '.jpg', rgb5)
+            # center the goal based on this new point cloud center
+            numpy_goal = (raw_goal - ctr) * 10.0
+            dist_goal = numpy_goal.copy()
 
-        dist_metrics = {'CD': chamfer(pointcloud, numpy_goal),
-                        'EMD': emd(pointcloud, numpy_goal),
-                        'HAUSDORFF': hausdorff(pointcloud, numpy_goal)}
+            # visualize observation vs goal cloud
+            pcl = o3d.geometry.PointCloud()
+            pcl.points = o3d.utility.Vector3dVector(pointcloud)
+            pcl.colors = o3d.utility.Vector3dVector(np.tile(np.array([0,0,1]), (len(pointcloud),1)))
+            goal_pcl = o3d.geometry.PointCloud()
+            goal_pcl.points = o3d.utility.Vector3dVector(dist_goal)
+            goal_pcl.colors = o3d.utility.Vector3dVector(np.tile(np.array([1,0,0]), (len(dist_goal),1)))
+            o3d.visualization.draw_geometries([pcl, goal_pcl])
 
-        print("\nDists: ", dist_metrics)
-        with open(save_path + '/dist_metrics_' + str(i*4 + j + 1) + '.txt', 'w') as f:
-            f.write(str(dist_metrics))
-        
-        # end_time = time.time()
-        # print("\nDistance Metric Calc Times: ", end_time - start_time)
+            # save observation
+            np.save(save_path + '/pcl' + str(t*5 + j + 1) + '.npy', pointcloud)
+            np.save(save_path + '/center' + str(t*5 + j + 1) + '.npy', ctr)
+            cv2.imwrite(save_path + '/rgb2_state' + str(t*5 + j + 1) + '.jpg', rgb2)
+            cv2.imwrite(save_path + '/rgb3_state' + str(t*5 + j + 1) + '.jpg', rgb3)
+            cv2.imwrite(save_path + '/rgb4_state' + str(t*5 + j + 1) + '.jpg', rgb4)
+            cv2.imwrite(save_path + '/rgb5_state' + str(t*5 + j + 1) + '.jpg', rgb5)
 
-        # exit loop early if the goal is reached
-        if dist_metrics['CD'] < 0.07 or dist_metrics['EMD'] < 0.07:
-            break
-            # if emd_dict['goal'] < 0.01 or cd_dict['goal'] < 0.01:
-            #     break
+            dist_metrics = {'CD': chamfer(pointcloud, numpy_goal),
+                            'EMD': emd(pointcloud, numpy_goal),
+                            'HAUSDORFF': hausdorff(pointcloud, numpy_goal)}
 
-        # alternate break scenario --> if the past 3 actions have not resulted in a decent change in the emd or cd, break
+            print("\nDists: ", dist_metrics)
+            with open(save_path + '/dist_metrics_' + str(t*5 + j + 1) + '.txt', 'w') as f:
+                f.write(str(dist_metrics))
+
+            # exit loop early if the goal is reached
+            if dist_metrics['CD'] < 0.07 or dist_metrics['EMD'] < 0.07:
+                break
     
     # completed the experiment, send the message to the video recording loop
     done_queue.put("Done!")
@@ -329,7 +342,6 @@ def video_loop(cam_pipeline, save_path, done_queue):
     forcc = cv2.VideoWriter_fourcc(*'XVID')
     if not os.path.exists(save_path):
         os.mkdir(save_path)
-    # out = cv2.VideoWriter(save_path + '/video.avi', forcc, 30.0, (848, 480))
     out = cv2.VideoWriter(save_path + '/video.avi', forcc, 30.0, (1280, 800))
 
     frame_save_counter = 0
@@ -345,9 +357,11 @@ def video_loop(cam_pipeline, save_path, done_queue):
 
         # save frame approx. every 100 frames
         if frame_save_counter % 100 == 0:
+            # cv2.imwrite(save_path + '/external_rgb' + str(frame_save_counter) + '.jpg', rotated_image)
             cv2.imwrite(save_path + '/external_rgb' + str(frame_save_counter) + '.jpg', rotated_image)
         frame_save_counter += 1
-        out.write(rotated_image)
+        # out.write(rotated_image)
+        out.write(color_image)
     
     cam_pipeline.stop()
     out.release()
