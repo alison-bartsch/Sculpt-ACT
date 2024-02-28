@@ -212,13 +212,15 @@ def experiment_loop(fa, cam2, cam3, cam4, cam5, pcl_vis, save_path, goal_str, ck
                 is_pad = None
                 # all_actions = policy(goal_embed, pcl_embed, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
                 all_actions = policy(goal_embed, pcl_embed, pos_data, action_data, is_pad, concat_goal, delta_goal, no_pos_embed)
+                print("Unsqueezed Actions", all_actions)
                 all_actions = all_actions.squeeze(0).cpu().numpy()
                 print("\n\nAll Actions: ", all_actions)
 
                 # unnormalize all actions
-                unnorm_as = (all_actions.squeeze(0).cpu().numpy() + 1.0) / 2.0
+                unnorm_as = (all_actions + 1.0) / 2.0
                 unnorm_as = unnorm_as * (a_maxs5d - a_mins5d) + a_mins5d
                 print("Unnormalized actions: ", unnorm_as)
+                print("unnorm shape: ", unnorm_as.shape)
 
             # if temporal_agg:
             #     print("all time action shape: ", all_time_actions.shape)
