@@ -333,6 +333,7 @@ def harware_eval(config, ckpt_name, save_episode=True):
                 pcl_o3d.colors = o3d.utility.Vector3dVector(pcl_o3d_colors)
                 pcl_vis.pcl_to_image(pcl_o3d, goal_o3d, 'Experiments/' + exp_name + '/pointclouds' + str(t) + '.png')
 
+
                 # pass the point cloud through Point-BERT to get the latent representation
                 state = torch.from_numpy(pointcloud).to(torch.float32)
                 states = torch.unsqueeze(state, 0).to(device)
